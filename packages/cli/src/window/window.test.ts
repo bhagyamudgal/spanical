@@ -111,6 +111,17 @@ test("parseWindow rejects a --last value with no unit", () => {
     expect(() => parseWindow({ last: "30" })).toThrow(WindowError);
 });
 
+test("parseWindow rejects a --last count of zero", () => {
+    expect(() => parseWindow({ last: "0d" })).toThrow(WindowError);
+    expect(() => parseWindow({ last: "0m" })).toThrow(WindowError);
+});
+
+test("parseWindow rejects a --last count beyond the safe integer range", () => {
+    expect(() => parseWindow({ last: "99999999999999999999d" })).toThrow(
+        WindowError
+    );
+});
+
 test("parseWindow rejects a --this value that is not a known unit", () => {
     try {
         parseWindow({ this: "bogus" });

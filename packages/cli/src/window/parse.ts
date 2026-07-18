@@ -96,7 +96,14 @@ export function parseWindow(flags: WindowFlags): WindowRequest {
                 `Invalid --last value "${flags.last}". Expected a number followed by d, w, m, q, or y (e.g. 30d, 6w, 12m).`
             );
         }
-        return { kind: "last", count: Number(match[1]), unit };
+        const count = Number(match[1]);
+        if (!Number.isSafeInteger(count) || count <= 0) {
+            throw new WindowError(
+                WINDOW_ERROR_CODES.INVALID_LAST_FORMAT,
+                `Invalid --last value "${flags.last}". The count must be a positive whole number.`
+            );
+        }
+        return { kind: "last", count, unit };
     }
 
     if (isPresent(flags.this)) {
