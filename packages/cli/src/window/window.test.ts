@@ -4,6 +4,7 @@ import { computeBounds, generatePeriods } from "./boundaries";
 import { WindowError } from "./errors";
 import { chooseGranularity, resolveGranularity } from "./granularity";
 import { parseWindow } from "./parse";
+import { resolveWindow } from "./resolve";
 
 test("parseWindow defaults to the last 12 months when no flags are given", () => {
     expect(parseWindow({})).toEqual({ kind: "last", count: 12, unit: "m" });
@@ -282,4 +283,43 @@ test("resolveGranularity delegates to chooseGranularity without an override", ()
     const end = new TZDate(2026, 1, 2, "UTC");
     expect(resolveGranularity(start, end)).toBe("week");
     expect(resolveGranularity(start, end)).toBe(chooseGranularity(start, end));
+});
+
+test("resolveWindow defaults to twelve monthly buckets labelled last 12m", () => {
+    const resolved = resolveWindow({ flags: {}, timezone: "UTC", now: NOW });
+    expect(resolved.granularity).toBe("month");
+    expect(resolved.periods.length).toBeGreaterThanOrEqual(12);
+    expect(resolved.periods.length).toBeLessThanOrEqual(13);
+    expect(resolved.label).toContain("last 12m");
+});
+
+test("resolveWindow picks weekly granularity for a short last 30d window", () => {
+    const resolved = resolveWindow({
+        flags: { last: "30d" },
+        timezone: "UTC",
+        now: NOW,
+    });
+    expect(resolved.granularity).toBe("week");
+    expect(resolved.label).toContain("last 30d");
+});
+
+test("resolveWindow labels an open start as history with no periods", () => {
+    const resolved = resolveWindow({
+        flags: { until: "2026-03-01" },
+        timezone: "UTC",
+        now: NOW,
+    });
+    expect(resolved.start).toBeNull();
+    expect(resolved.periods).toEqual([]);
+    expect(resolved.label.startsWith("history →")).toBe(true);
+});
+
+test("resolveWindow lets a period override beat the auto granularity", () => {
+    const resolved = resolveWindow({
+        flags: { last: "30d" },
+        timezone: "UTC",
+        now: NOW,
+        period: "quarter",
+    });
+    expect(resolved.granularity).toBe("quarter");
 });

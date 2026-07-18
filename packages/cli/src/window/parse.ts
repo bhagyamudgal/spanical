@@ -10,7 +10,7 @@ const THIS_UNITS = ["week", "month", "quarter", "year"] as const;
 type LastUnit = (typeof LAST_UNITS)[number];
 type ThisUnit = (typeof THIS_UNITS)[number];
 
-type WindowFlags = {
+export type WindowFlags = {
     last?: string;
     this?: string;
     ytd?: boolean;
