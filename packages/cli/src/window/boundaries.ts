@@ -19,13 +19,13 @@ import {
     subWeeks,
     subYears,
 } from "date-fns";
+import { WEEK_STARTS_ON_MONDAY } from "./constants";
 import type { Granularity, Period, WindowRequest } from "./types";
 
 type LastUnit = Extract<WindowRequest, { kind: "last" }>["unit"];
 type ThisUnit = Extract<WindowRequest, { kind: "this" }>["unit"];
 type ZoneContext = { in: ReturnType<typeof tz> };
 
-const WEEK_STARTS_ON_MONDAY = 1;
 const WEEK_LABEL_FORMAT = "RRRR-'W'II";
 const MONTH_LABEL_FORMAT = "yyyy-MM";
 const QUARTER_LABEL_FORMAT = "yyyy-'Q'q";

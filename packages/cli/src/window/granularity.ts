@@ -3,9 +3,9 @@ import {
     differenceInCalendarMonths,
     differenceInCalendarWeeks,
 } from "date-fns";
+import { WEEK_STARTS_ON_MONDAY } from "./constants";
 import type { Granularity } from "./types";
 
-const WEEK_STARTS_ON_MONDAY = 1;
 const WEEKLY_MAX_WEEKS = 8;
 const MONTHLY_MAX_MONTHS = 18;
 const DEFAULT_OPEN_START_GRANULARITY = "month";
