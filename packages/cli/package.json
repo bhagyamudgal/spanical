@@ -1,0 +1,31 @@
+{
+    "name": "spanical",
+    "version": "0.0.0",
+    "description": "Local-first code-insights CLI that reads git history to tell the story of your engineering.",
+    "type": "module",
+    "bin": {
+        "spanical": "dist/spanical"
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "dev": "bun src/index.ts",
+        "build": "bun build src/index.ts --compile --outfile dist/spanical",
+        "clean": "rm -rf dist",
+        "typecheck": "tsc --noEmit",
+        "lint": "eslint src"
+    },
+    "dependencies": {
+        "@drizzle-team/brocli": "^0.12",
+        "@spanical/utils": "workspace:*",
+        "zod": "^4"
+    },
+    "devDependencies": {
+        "@spanical/eslint-config": "workspace:*",
+        "@spanical/typescript-config": "workspace:*",
+        "@types/bun": "latest",
+        "eslint": "^9.30.1",
+        "typescript": "^5.8.3"
+    }
+}
