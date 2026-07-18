@@ -8,7 +8,7 @@ const DEFAULT_BUS_FACTOR_THRESHOLD = 0.8;
 const DEFAULT_REWORK_WINDOW_DAYS = 21;
 const GITHUB_TOKEN_ENV_REF = "env:GITHUB_TOKEN";
 
-function isValidTimeZone(timeZone: string): boolean {
+export function isValidTimeZone(timeZone: string): boolean {
     try {
         new Intl.DateTimeFormat("en-US", { timeZone });
         return true;
