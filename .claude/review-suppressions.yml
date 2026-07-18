@@ -1,0 +1,6 @@
+suppressions:
+  - pattern: "config.since"
+    category: "Functional Correctness"
+    file: "packages/cli/src/cli/resolve-run.ts"
+    reason: "config.since is intentionally reserved as the extraction-phase history floor, not a reporting-window default; window selection is flag-driven by design and config.since gets consumed in a later phase."
+    added: 2026-07-19
