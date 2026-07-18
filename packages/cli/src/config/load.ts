@@ -70,7 +70,7 @@ export async function loadConfig(
     if (!existsSync(path)) {
         throw new ConfigError(
             CONFIG_ERROR_CODES.NOT_FOUND,
-            `No spanical config found at ${path}. Create a spanical.config.ts or pass --config <path>.`
+            `No spanical config found at ${path}. Create a spanical.config.ts to get started.`
         );
     }
     const { data: imported, error } = await tryCatch<{ default: unknown }>(
@@ -98,13 +98,6 @@ export async function loadConfigOrExit(
     const { data, error } = await tryCatch(loadConfig(options));
     if (error) {
         process.stderr.write(`${error.message}\n`);
-        if (
-            error instanceof ConfigError &&
-            error.cause instanceof Error &&
-            error.cause.stack
-        ) {
-            process.stderr.write(`${error.cause.stack}\n`);
-        }
         process.exit(1);
     }
     return data;

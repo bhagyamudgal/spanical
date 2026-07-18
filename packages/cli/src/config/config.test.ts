@@ -81,6 +81,21 @@ test("parseConfig rejects a literal (non-env) token", () => {
     ).toThrow(ConfigError);
 });
 
+test("parseConfig rejects a token that is not env:GITHUB_TOKEN", () => {
+    expect(() =>
+        parseConfig({
+            repos: [{ name: "web-app", path: "../web-app" }],
+            tickets: {
+                source: "github",
+                github: {
+                    repos: ["owner/web-app"],
+                    token: "env:OTHER_TOKEN",
+                },
+            },
+        })
+    ).toThrow(ConfigError);
+});
+
 function writeFixture(contents: string): string {
     const dir = mkdtempSync(join(tmpdir(), "spanical-cfg-"));
     writeFileSync(join(dir, "spanical.config.ts"), contents);

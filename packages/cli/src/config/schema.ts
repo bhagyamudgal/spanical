@@ -6,7 +6,7 @@ const DEFAULT_MIGRATIONS_PATH = "**/migrations/**";
 const DEFAULT_MIN_FILE_LINES = 50;
 const DEFAULT_BUS_FACTOR_THRESHOLD = 0.8;
 const DEFAULT_REWORK_WINDOW_DAYS = 21;
-const ENV_TOKEN_PATTERN = /^env:[A-Z_][A-Z0-9_]*$/;
+const GITHUB_TOKEN_ENV_REF = "env:GITHUB_TOKEN";
 
 function isValidTimeZone(timeZone: string): boolean {
     try {
@@ -32,12 +32,7 @@ const ticketsSchema = z.strictObject({
     source: z.literal("github"),
     github: z.strictObject({
         repos: z.array(z.string().min(1)).min(1),
-        token: z
-            .string()
-            .regex(
-                ENV_TOKEN_PATTERN,
-                'must be an env reference like "env:GITHUB_TOKEN"'
-            ),
+        token: z.literal(GITHUB_TOKEN_ENV_REF),
         includeIssues: z.boolean().default(true),
     }),
     attribution: z.enum(["assignee", "author", "closer"]).default("assignee"),
