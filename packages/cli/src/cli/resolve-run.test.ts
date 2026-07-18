@@ -59,6 +59,21 @@ test("--repo replaces config repos and derives names from basenames", async () =
     }
 });
 
+test("--repo rejects paths that collapse to duplicate basenames", async () => {
+    const dir = writeFixture();
+    try {
+        await expect(
+            resolveRunConfig({
+                flags: { repo: "../frontend/web,../backend/web" },
+                cwd: dir,
+                now: NOW,
+            })
+        ).rejects.toThrow(WindowError);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test("--exclude replaces the config exclude list", async () => {
     const dir = writeFixture();
     try {

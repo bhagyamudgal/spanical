@@ -52,6 +52,21 @@ export async function resolveRunConfig(input: {
               }))
             : config.repos;
 
+    const repoNames = repos.map((repo) => repo.name);
+    if (new Set(repoNames).size !== repoNames.length) {
+        const duplicates = [
+            ...new Set(
+                repoNames.filter(
+                    (name, index) => repoNames.indexOf(name) !== index
+                )
+            ),
+        ];
+        throw new WindowError(
+            WINDOW_ERROR_CODES.DUPLICATE_REPO_NAMES,
+            `Duplicate repo name(s): ${duplicates.join(", ")}. Each --repo path must end in a distinct final segment.`
+        );
+    }
+
     const tz = flags.tz ?? config.timezone;
     if (!isValidTimeZone(tz)) {
         throw new WindowError(
