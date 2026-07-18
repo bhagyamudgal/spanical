@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { TZDate } from "@date-fns/tz";
 import { computeBounds, generatePeriods } from "./boundaries";
 import { WindowError } from "./errors";
+import { chooseGranularity, resolveGranularity } from "./granularity";
 import { parseWindow } from "./parse";
 
 test("parseWindow defaults to the last 12 months when no flags are given", () => {
@@ -238,4 +239,47 @@ test("generatePeriods monthly labels each calendar month in the interval", () =>
 
 test("generatePeriods returns no buckets when the start is null", () => {
     expect(generatePeriods(null, NOW, "month", "UTC")).toEqual([]);
+});
+
+test("chooseGranularity picks week for a span of exactly eight weeks", () => {
+    const start = new TZDate(2026, 0, 4, "UTC");
+    const end = new TZDate(2026, 2, 1, "UTC");
+    expect(chooseGranularity(start, end)).toBe("week");
+});
+
+test("chooseGranularity picks month one day past the weekly cutoff", () => {
+    const start = new TZDate(2026, 0, 4, "UTC");
+    const end = new TZDate(2026, 2, 2, "UTC");
+    expect(chooseGranularity(start, end)).toBe("month");
+});
+
+test("chooseGranularity picks month for a span of exactly eighteen months", () => {
+    const start = new TZDate(2025, 0, 15, "UTC");
+    const end = new TZDate(2026, 6, 15, "UTC");
+    expect(chooseGranularity(start, end)).toBe("month");
+});
+
+test("chooseGranularity picks quarter one day past the monthly cutoff", () => {
+    const start = new TZDate(2025, 0, 31, "UTC");
+    const end = new TZDate(2026, 7, 1, "UTC");
+    expect(chooseGranularity(start, end)).toBe("quarter");
+});
+
+test("resolveGranularity lets an override win over what auto would pick", () => {
+    const start = new TZDate(2023, 0, 1, "UTC");
+    const end = new TZDate(2026, 0, 1, "UTC");
+    expect(chooseGranularity(start, end)).toBe("quarter");
+    expect(resolveGranularity(start, end, "week")).toBe("week");
+});
+
+test("resolveGranularity defaults an open start to month", () => {
+    const end = new TZDate(2026, 0, 1, "UTC");
+    expect(resolveGranularity(null, end)).toBe("month");
+});
+
+test("resolveGranularity delegates to chooseGranularity without an override", () => {
+    const start = new TZDate(2026, 0, 5, "UTC");
+    const end = new TZDate(2026, 1, 2, "UTC");
+    expect(resolveGranularity(start, end)).toBe("week");
+    expect(resolveGranularity(start, end)).toBe(chooseGranularity(start, end));
 });
