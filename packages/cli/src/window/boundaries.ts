@@ -3,6 +3,7 @@ import {
     eachMonthOfInterval,
     eachQuarterOfInterval,
     eachWeekOfInterval,
+    endOfDay,
     endOfMonth,
     endOfQuarter,
     endOfWeek,
@@ -116,7 +117,9 @@ export function computeBounds(
                 end:
                     request.until === null
                         ? now
-                        : toZonedStartOfDay(request.until, timezone),
+                        : endOfDay(toZonedStartOfDay(request.until, timezone), {
+                              in: tz(timezone),
+                          }),
             };
     }
 }
