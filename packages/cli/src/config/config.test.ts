@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { ConfigError, parseConfig } from "./load";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ConfigError, loadConfig, parseConfig } from "./load";
 
 test("parseConfig fills all documented defaults from a minimal config", () => {
     const cfg = parseConfig({
@@ -75,4 +78,41 @@ test("parseConfig rejects a literal (non-env) token", () => {
             },
         })
     ).toThrow(ConfigError);
+});
+
+function writeFixture(contents: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-cfg-"));
+    writeFileSync(join(dir, "spanical.config.ts"), contents);
+    return dir;
+}
+
+const MINIMAL_FIXTURE = `export default { repos: [{ name: "web-app", path: "../web-app" }] };`;
+
+test("loadConfig loads spanical.config.ts from cwd", async () => {
+    const dir = writeFixture(MINIMAL_FIXTURE);
+    try {
+        const cfg = await loadConfig({ cwd: dir });
+        expect(cfg.repos[0]?.name).toBe("web-app");
+        expect(cfg.timezone).toBe("Europe/Zurich");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("loadConfig honors an explicit configPath", async () => {
+    const dir = writeFixture(MINIMAL_FIXTURE);
+    try {
+        const cfg = await loadConfig({
+            configPath: join(dir, "spanical.config.ts"),
+        });
+        expect(cfg.repos[0]?.path).toBe("../web-app");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("loadConfig throws a clear ConfigError when the file is missing", async () => {
+    await expect(
+        loadConfig({ cwd: mkdtempSync(join(tmpdir(), "spanical-empty-")) })
+    ).rejects.toThrow(/No spanical config/);
 });

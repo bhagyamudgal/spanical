@@ -1,5 +1,10 @@
+import { existsSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+import { tryCatch } from "@spanical/utils";
 import type { z } from "zod";
 import { configSchema, type SpanicalConfig } from "./schema";
+
+const CONFIG_FILENAME = "spanical.config.ts";
 
 const CONFIG_ERROR_CODES = {
     NOT_FOUND: "CONFIG_NOT_FOUND",
@@ -43,4 +48,49 @@ export function parseConfig(raw: unknown): SpanicalConfig {
         );
     }
     return result.data;
+}
+
+function resolveConfigPath(options: {
+    configPath?: string;
+    cwd?: string;
+}): string {
+    const cwd = options.cwd ?? process.cwd();
+    if (options.configPath) {
+        return isAbsolute(options.configPath)
+            ? options.configPath
+            : resolve(cwd, options.configPath);
+    }
+    return resolve(cwd, CONFIG_FILENAME);
+}
+
+export async function loadConfig(
+    options: { configPath?: string; cwd?: string } = {}
+): Promise<SpanicalConfig> {
+    const path = resolveConfigPath(options);
+    if (!existsSync(path)) {
+        throw new ConfigError(
+            CONFIG_ERROR_CODES.NOT_FOUND,
+            `No spanical config found at ${path}. Create a spanical.config.ts or pass --config <path>.`
+        );
+    }
+    const { data: imported, error } = await tryCatch(import(path));
+    if (error) {
+        throw new ConfigError(
+            CONFIG_ERROR_CODES.IMPORT_FAILED,
+            `Failed to load config at ${path}: ${error.message}`,
+            { cause: error }
+        );
+    }
+    return parseConfig(imported.default);
+}
+
+export async function loadConfigOrExit(
+    options: { configPath?: string; cwd?: string } = {}
+): Promise<SpanicalConfig> {
+    const { data, error } = await tryCatch(loadConfig(options));
+    if (error) {
+        process.stderr.write(`${error.message}\n`);
+        process.exit(1);
+    }
+    return data;
 }
