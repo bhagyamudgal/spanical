@@ -1,0 +1,5 @@
+{
+    "extends": "@spanical/typescript-config/bun-cli.json",
+    "include": ["src/**/*"],
+    "exclude": ["node_modules", "dist"]
+}
