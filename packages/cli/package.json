@@ -6,6 +6,9 @@
     "bin": {
         "spanical": "dist/spanical"
     },
+    "exports": {
+        ".": "./src/public.ts"
+    },
     "files": [
         "dist"
     ],
@@ -14,7 +17,8 @@
         "build": "bun build src/index.ts --compile --outfile dist/spanical",
         "clean": "rm -rf dist",
         "typecheck": "tsc --noEmit",
-        "lint": "eslint src"
+        "lint": "eslint src",
+        "test": "bun test"
     },
     "dependencies": {
         "@drizzle-team/brocli": "^0.12",
