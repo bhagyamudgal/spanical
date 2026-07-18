@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConfigError, loadConfig, parseConfig } from "./load";
+import { defineConfig } from "../public";
 
 test("parseConfig fills all documented defaults from a minimal config", () => {
     const cfg = parseConfig({
@@ -86,7 +87,8 @@ function writeFixture(contents: string): string {
     return dir;
 }
 
-const MINIMAL_FIXTURE = `export default { repos: [{ name: "web-app", path: "../web-app" }] };`;
+const MINIMAL_FIXTURE = `import { defineConfig } from "${import.meta.dir}/../public";
+export default defineConfig({ repos: [{ name: "web-app", path: "../web-app" }] });`;
 
 test("loadConfig loads spanical.config.ts from cwd", async () => {
     const dir = writeFixture(MINIMAL_FIXTURE);
@@ -115,4 +117,9 @@ test("loadConfig throws a clear ConfigError when the file is missing", async () 
     await expect(
         loadConfig({ cwd: mkdtempSync(join(tmpdir(), "spanical-empty-")) })
     ).rejects.toThrow(/No spanical config/);
+});
+
+test("defineConfig returns its input unchanged (identity)", () => {
+    const input = { repos: [{ name: "web-app", path: "../web-app" }] };
+    expect(defineConfig(input)).toBe(input);
 });
