@@ -73,12 +73,20 @@ export async function loadConfig(
             `No spanical config found at ${path}. Create a spanical.config.ts or pass --config <path>.`
         );
     }
-    const { data: imported, error } = await tryCatch(import(path));
+    const { data: imported, error } = await tryCatch<{ default: unknown }>(
+        import(path)
+    );
     if (error) {
         throw new ConfigError(
             CONFIG_ERROR_CODES.IMPORT_FAILED,
             `Failed to load config at ${path}: ${error.message}`,
             { cause: error }
+        );
+    }
+    if (imported.default === undefined) {
+        throw new ConfigError(
+            CONFIG_ERROR_CODES.INVALID,
+            `Config at ${path} has no default export. Use "export default defineConfig({ ... })".`
         );
     }
     return parseConfig(imported.default);
@@ -90,6 +98,13 @@ export async function loadConfigOrExit(
     const { data, error } = await tryCatch(loadConfig(options));
     if (error) {
         process.stderr.write(`${error.message}\n`);
+        if (
+            error instanceof ConfigError &&
+            error.cause instanceof Error &&
+            error.cause.stack
+        ) {
+            process.stderr.write(`${error.cause.stack}\n`);
+        }
         process.exit(1);
     }
     return data;

@@ -9,7 +9,7 @@ test("parseConfig fills all documented defaults from a minimal config", () => {
     const cfg = parseConfig({
         repos: [{ name: "web-app", path: "../web-app" }],
     });
-    expect(cfg.timezone).toBe("Europe/Zurich");
+    expect(cfg.timezone).toBe("UTC");
     expect(cfg.exclude).toEqual([
         "**/*.lock",
         "**/dist/**",
@@ -95,7 +95,7 @@ test("loadConfig loads spanical.config.ts from cwd", async () => {
     try {
         const cfg = await loadConfig({ cwd: dir });
         expect(cfg.repos[0]?.name).toBe("web-app");
-        expect(cfg.timezone).toBe("Europe/Zurich");
+        expect(cfg.timezone).toBe("UTC");
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
@@ -122,4 +122,85 @@ test("loadConfig throws a clear ConfigError when the file is missing", async () 
 test("defineConfig returns its input unchanged (identity)", () => {
     const input = { repos: [{ name: "web-app", path: "../web-app" }] };
     expect(defineConfig(input)).toBe(input);
+});
+
+test("parseConfig rejects an unknown key instead of silently dropping it", () => {
+    try {
+        parseConfig({
+            repos: [{ name: "web-app", path: "../web-app" }],
+            timezon: "UTC",
+        });
+        throw new Error("expected parseConfig to throw");
+    } catch (error) {
+        expect(error).toBeInstanceOf(ConfigError);
+        if (error instanceof ConfigError) {
+            expect(error.message).toContain("timezon");
+        }
+    }
+});
+
+test("parseConfig rejects a non-existent calendar date for since", () => {
+    expect(() =>
+        parseConfig({
+            repos: [{ name: "web-app", path: "../web-app" }],
+            since: "2025-13-45",
+        })
+    ).toThrow(ConfigError);
+});
+
+test("parseConfig accepts a valid since date", () => {
+    const cfg = parseConfig({
+        repos: [{ name: "web-app", path: "../web-app" }],
+        since: "2025-07-01",
+    });
+    expect(cfg.since).toBe("2025-07-01");
+});
+
+test("parseConfig rejects an invalid IANA timezone", () => {
+    expect(() =>
+        parseConfig({
+            repos: [{ name: "web-app", path: "../web-app" }],
+            timezone: "Europe/Zurick",
+        })
+    ).toThrow(ConfigError);
+});
+
+test("parseConfig rejects duplicate repo names", () => {
+    expect(() =>
+        parseConfig({
+            repos: [
+                { name: "web-app", path: "../a" },
+                { name: "web-app", path: "../b" },
+            ],
+        })
+    ).toThrow(ConfigError);
+});
+
+test("loadConfig fails clearly when the config has no default export", async () => {
+    const dir = writeFixture(
+        `export const config = { repos: [{ name: "web-app", path: "../web-app" }] };`
+    );
+    try {
+        await expect(loadConfig({ cwd: dir })).rejects.toThrow(
+            /no default export/
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("loadConfig surfaces an import-time error as IMPORT_FAILED with its cause", async () => {
+    const dir = writeFixture(`throw new Error("boom at eval");`);
+    try {
+        await loadConfig({ cwd: dir });
+        throw new Error("expected loadConfig to throw");
+    } catch (error) {
+        expect(error).toBeInstanceOf(ConfigError);
+        if (error instanceof ConfigError) {
+            expect(error.code).toBe("CONFIG_IMPORT_FAILED");
+            expect(error.cause).toBeInstanceOf(Error);
+        }
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
 });
