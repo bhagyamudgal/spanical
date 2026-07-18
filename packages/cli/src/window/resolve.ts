@@ -47,7 +47,12 @@ export function resolveWindow(input: {
 }): ResolvedWindow {
     const request = parseWindow(input.flags);
     const { start, end } = computeBounds(request, input.timezone, input.now);
-    const granularity = resolveGranularity(start, end, input.period);
+    const granularity = resolveGranularity(
+        start,
+        end,
+        input.timezone,
+        input.period
+    );
     const periods = generatePeriods(start, end, granularity, input.timezone);
     const label = buildLabel(request, start, end, input.timezone);
     return { start, end, granularity, periods, label };
