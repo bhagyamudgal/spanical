@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { TZDate } from "@date-fns/tz";
+import { computeBounds, generatePeriods } from "./boundaries";
 import { WindowError } from "./errors";
 import { parseWindow } from "./parse";
 
@@ -117,4 +119,123 @@ test("parseWindow rejects a --this value that is not a known unit", () => {
             expect(error.code).toBe("WINDOW_INVALID_THIS_UNIT");
         }
     }
+});
+
+const NOW = new TZDate("2026-07-18T12:00:00Z", "UTC");
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function instant(iso: string): number {
+    return new Date(iso).getTime();
+}
+
+test("computeBounds --last 30d ends at now and starts 30 days earlier", () => {
+    const bounds = computeBounds(
+        { kind: "last", count: 30, unit: "d" },
+        "UTC",
+        NOW
+    );
+    expect(bounds.start?.getTime()).toBe(instant("2026-06-18T12:00:00.000Z"));
+    expect(bounds.end).toBe(NOW);
+});
+
+test("computeBounds --last 12m starts twelve months before now", () => {
+    const bounds = computeBounds(
+        { kind: "last", count: 12, unit: "m" },
+        "UTC",
+        NOW
+    );
+    expect(bounds.start?.getTime()).toBe(instant("2025-07-18T12:00:00.000Z"));
+    expect(bounds.end).toBe(NOW);
+});
+
+test("computeBounds --this month spans the whole month in UTC", () => {
+    const bounds = computeBounds({ kind: "this", unit: "month" }, "UTC", NOW);
+    expect(bounds.start?.getTime()).toBe(instant("2026-07-01T00:00:00.000Z"));
+    expect(bounds.end.getTime()).toBe(instant("2026-07-31T23:59:59.999Z"));
+});
+
+test("computeBounds --ytd starts at the year boundary and ends at now", () => {
+    const bounds = computeBounds({ kind: "ytd" }, "UTC", NOW);
+    expect(bounds.start?.getTime()).toBe(instant("2026-01-01T00:00:00.000Z"));
+    expect(bounds.end).toBe(NOW);
+});
+
+test("computeBounds range with since alone runs from since to now", () => {
+    const bounds = computeBounds(
+        { kind: "range", since: "2026-01-01", until: null },
+        "UTC",
+        NOW
+    );
+    expect(bounds.start?.getTime()).toBe(instant("2026-01-01T00:00:00.000Z"));
+    expect(bounds.end).toBe(NOW);
+});
+
+test("computeBounds range with until alone has a null start", () => {
+    const bounds = computeBounds(
+        { kind: "range", since: null, until: "2026-03-01" },
+        "UTC",
+        NOW
+    );
+    expect(bounds.start).toBeNull();
+    expect(bounds.end.getTime()).toBe(instant("2026-03-01T00:00:00.000Z"));
+});
+
+test("computeBounds --this month resolves to different instants per zone", () => {
+    const kolkata = computeBounds(
+        { kind: "this", unit: "month" },
+        "Asia/Kolkata",
+        NOW
+    );
+    const berlin = computeBounds(
+        { kind: "this", unit: "month" },
+        "Europe/Berlin",
+        NOW
+    );
+    expect(kolkata.start?.getTime()).not.toBe(berlin.start?.getTime());
+});
+
+test("computeBounds range since is wall-clock midnight in the configured zone", () => {
+    const bounds = computeBounds(
+        { kind: "range", since: "2026-01-01", until: null },
+        "Asia/Kolkata",
+        NOW
+    );
+    expect(bounds.start?.getTime()).toBe(instant("2025-12-31T18:30:00.000Z"));
+});
+
+test("generatePeriods weekly buckets stay contiguous across a DST change", () => {
+    const start = new TZDate(2026, 2, 16, "Europe/Berlin");
+    const end = new TZDate(2026, 3, 5, "Europe/Berlin");
+    const periods = generatePeriods(start, end, "week", "Europe/Berlin");
+
+    expect(periods).toHaveLength(3);
+    for (const period of periods) {
+        expect(period.start.getTime()).toBeLessThan(period.end.getTime());
+    }
+    for (let index = 0; index < periods.length - 1; index++) {
+        const current = periods[index];
+        const next = periods[index + 1];
+        if (current === undefined || next === undefined) {
+            throw new Error("expected contiguous periods");
+        }
+        const gap = next.start.getTime() - current.end.getTime();
+        expect(current.end.getTime()).toBeLessThan(next.start.getTime());
+        expect(gap).toBeGreaterThan(0);
+        expect(gap).toBeLessThan(MS_PER_DAY);
+    }
+});
+
+test("generatePeriods monthly labels each calendar month in the interval", () => {
+    const start = new TZDate(2026, 0, 1, "UTC");
+    const end = new TZDate(2026, 2, 31, "UTC");
+    const periods = generatePeriods(start, end, "month", "UTC");
+    expect(periods.map((period) => period.label)).toEqual([
+        "2026-01",
+        "2026-02",
+        "2026-03",
+    ]);
+});
+
+test("generatePeriods returns no buckets when the start is null", () => {
+    expect(generatePeriods(null, NOW, "month", "UTC")).toEqual([]);
 });
