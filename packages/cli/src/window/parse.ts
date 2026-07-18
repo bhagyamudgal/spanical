@@ -120,6 +120,17 @@ export function parseWindow(flags: WindowFlags): WindowRequest {
         assertIsoDate(flags.until, "--until");
     }
 
+    if (
+        isPresent(flags.since) &&
+        isPresent(flags.until) &&
+        flags.since > flags.until
+    ) {
+        throw new WindowError(
+            WINDOW_ERROR_CODES.INVALID_RANGE_ORDER,
+            `--since (${flags.since}) must be on or before --until (${flags.until}).`
+        );
+    }
+
     return {
         kind: "range",
         since: flags.since ?? null,

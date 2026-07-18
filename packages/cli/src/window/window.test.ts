@@ -147,6 +147,26 @@ test("parseWindow accepts a range of two valid calendar dates", () => {
     });
 });
 
+test("parseWindow rejects a reversed range where since is after until", () => {
+    try {
+        parseWindow({ since: "2026-05-01", until: "2026-01-01" });
+        throw new Error("expected parseWindow to throw");
+    } catch (error) {
+        expect(error).toBeInstanceOf(WindowError);
+        if (error instanceof WindowError) {
+            expect(error.code).toBe("WINDOW_INVALID_RANGE_ORDER");
+        }
+    }
+});
+
+test("parseWindow accepts a same-day range where since equals until", () => {
+    expect(parseWindow({ since: "2026-01-01", until: "2026-01-01" })).toEqual({
+        kind: "range",
+        since: "2026-01-01",
+        until: "2026-01-01",
+    });
+});
+
 const NOW = new TZDate("2026-07-18T12:00:00Z", "UTC");
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
