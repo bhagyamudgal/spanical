@@ -1,6 +1,8 @@
+import { z } from "zod";
 import type { WindowRequest } from "./types";
 import { WINDOW_ERROR_CODES, WindowError } from "./errors";
 
+const ISO_DATE_SCHEMA = z.iso.date();
 const DEFAULT_LAST_COUNT = 12;
 const DEFAULT_LAST_UNIT = "m";
 const LAST_PATTERN = /^(\d+)(d|w|m|q|y)$/;
@@ -20,6 +22,15 @@ export type WindowFlags = {
 
 function isPresent(value: string | undefined): value is string {
     return value !== undefined && value.length > 0;
+}
+
+function assertIsoDate(value: string, flagName: string): void {
+    if (!ISO_DATE_SCHEMA.safeParse(value).success) {
+        throw new WindowError(
+            WINDOW_ERROR_CODES.INVALID_RANGE_DATE,
+            `Invalid ${flagName} value "${value}". Expected a real calendar date in YYYY-MM-DD form.`
+        );
+    }
 }
 
 function isLastUnit(value: string): value is LastUnit {
@@ -100,6 +111,13 @@ export function parseWindow(flags: WindowFlags): WindowRequest {
 
     if (hasYtd) {
         return { kind: "ytd" };
+    }
+
+    if (isPresent(flags.since)) {
+        assertIsoDate(flags.since, "--since");
+    }
+    if (isPresent(flags.until)) {
+        assertIsoDate(flags.until, "--until");
     }
 
     return {

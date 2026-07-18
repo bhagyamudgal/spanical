@@ -123,6 +123,30 @@ test("parseWindow rejects a --this value that is not a known unit", () => {
     }
 });
 
+test("parseWindow rejects a --since value with an impossible month and day", () => {
+    expect(() => parseWindow({ since: "2026-13-99" })).toThrow(WindowError);
+});
+
+test("parseWindow rejects a --since value that is not a real calendar date", () => {
+    expect(() => parseWindow({ since: "2026-02-30" })).toThrow(WindowError);
+});
+
+test("parseWindow rejects an --until value that is not a date at all", () => {
+    expect(() => parseWindow({ until: "not-a-date" })).toThrow(WindowError);
+});
+
+test("parseWindow rejects a --since value that is not zero-padded", () => {
+    expect(() => parseWindow({ since: "2026-1-1" })).toThrow(WindowError);
+});
+
+test("parseWindow accepts a range of two valid calendar dates", () => {
+    expect(parseWindow({ since: "2026-01-01", until: "2026-03-01" })).toEqual({
+        kind: "range",
+        since: "2026-01-01",
+        until: "2026-03-01",
+    });
+});
+
 const NOW = new TZDate("2026-07-18T12:00:00Z", "UTC");
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
