@@ -50,7 +50,7 @@ export function parseConfig(raw: unknown): SpanicalConfig {
     return result.data;
 }
 
-function resolveConfigPath(options: {
+export function resolveConfigPath(options: {
     configPath?: string;
     cwd?: string;
 }): string {
