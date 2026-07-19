@@ -24,8 +24,10 @@
         "@date-fns/tz": "^1",
         "@drizzle-team/brocli": "^0.12",
         "@spanical/utils": "workspace:*",
+        "cli-table3": "^0.6.5",
         "date-fns": "^4",
         "drizzle-orm": "^0.45.2",
+        "picocolors": "^1.1.1",
         "zod": "^4"
     },
     "devDependencies": {
