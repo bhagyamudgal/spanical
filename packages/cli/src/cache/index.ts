@@ -11,6 +11,7 @@ export {
     authors,
     authorAliases,
     commits,
+    commitAuthors,
     fileChanges,
     sccSnapshots,
     extractions,

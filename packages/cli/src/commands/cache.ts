@@ -1,5 +1,5 @@
 import { command, type TypeOf } from "@drizzle-team/brocli";
-import { tryCatchSync } from "@spanical/utils";
+import { tryCatch, tryCatchSync } from "@spanical/utils";
 import { globalFlags } from "../cli/global-flags";
 import {
     clearCache,
@@ -10,6 +10,7 @@ import {
     resolveCachePath,
     type CacheHandle,
 } from "../cache";
+import { extractAll, type ExtractionResult } from "../extract";
 
 type CacheFlags = TypeOf<typeof globalFlags>;
 
@@ -31,11 +32,35 @@ function runCacheStats(flags: CacheFlags): void {
     console.log(formatCacheStats(stats));
 }
 
-function runCacheRebuild(flags: CacheFlags): void {
+function formatExtractionSummary(result: ExtractionResult): string {
+    return result.repos
+        .map((repo) =>
+            repo.status === "skipped"
+                ? `${repo.repo}: skipped (unchanged)`
+                : `${repo.repo}: extracted (${repo.commitCount} commit${repo.commitCount === 1 ? "" : "s"}, ${repo.fileChangeCount} file change${repo.fileChangeCount === 1 ? "" : "s"})`
+        )
+        .join("\n");
+}
+
+async function runCacheRebuild(flags: CacheFlags): Promise<void> {
     const handle = openOrExit(flags);
     rebuildCache(handle.sqlite);
     handle.sqlite.close();
     console.log(`Cache rebuilt at ${handle.path}`);
+
+    const { data: result, error } = await tryCatch(
+        extractAll({ configPath: flags.config, noCache: true, now: new Date() })
+    );
+    if (error) {
+        process.stderr.write(`${error.message}\n`);
+        process.exit(1);
+    }
+    console.log(formatExtractionSummary(result));
+    if (result.unknownEmails.length > 0) {
+        process.stderr.write(
+            `warning: ${result.unknownEmails.length} author email(s) not in config: ${result.unknownEmails.join(", ")}\n`
+        );
+    }
 }
 
 function runCacheClear(flags: CacheFlags): void {
@@ -53,7 +78,7 @@ const statsSubcommand = command({
 
 const rebuildSubcommand = command({
     name: "rebuild",
-    desc: "Drop and recreate an empty cache at the current schema version",
+    desc: "Drop the cache and re-extract all repos from git",
     options: { ...globalFlags },
     handler: runCacheRebuild,
 });
