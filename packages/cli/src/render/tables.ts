@@ -8,6 +8,7 @@ import type {
     OwnershipRow,
     PeriodRollup,
     SizeTrendPoint,
+    TimelinePeriod,
 } from "../aggregate/types";
 import type { TableCell, TableColumn, TableModel } from "./table-model";
 
@@ -16,6 +17,7 @@ const SOLE_OWNED_YES = "yes";
 const SOLE_OWNED_NO = "-";
 const OWNERS_SEPARATOR = ", ";
 const SCORE_DECIMALS = 3;
+const EVENT_SEPARATOR = "; ";
 
 function toPercent(share: number): string {
     return `${Math.round(share * PERCENT_SCALE)}%`;
@@ -81,6 +83,29 @@ export function devTable(
             if (includePeriod) cells.period = row.period;
             return cells;
         }),
+    };
+}
+
+export function timelineTable(rows: TimelinePeriod[]): TableModel {
+    return {
+        columns: [
+            { key: "period", label: "Period", align: "left" },
+            { key: "net", label: "Net", align: "right" },
+            { key: "churn", label: "Churn", align: "right" },
+            { key: "commits", label: "Commits", align: "right" },
+            { key: "activeDevs", label: "Active devs", align: "right" },
+            { key: "events", label: "Events", align: "left" },
+        ],
+        rows: rows.map((row) => ({
+            period: row.period,
+            net: row.net,
+            churn: row.throughput,
+            commits: row.commits,
+            activeDevs: row.activeDevs,
+            events: row.events
+                .map((event) => event.label)
+                .join(EVENT_SEPARATOR),
+        })),
     };
 }
 
