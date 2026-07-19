@@ -151,11 +151,10 @@ function cleanup(dirs: string[]): void {
     }
 }
 
-test("runChurn renders the per-period table with commit counts", async () => {
+test("runChurn renders the per-period table by default", async () => {
     const { repo, cfgDir, cfgFile } = buildFixture();
     try {
         const run = await resolveRun(cfgFile, {
-            by: "file",
             since: "2026-06-01",
             period: "month",
             format: "md",
