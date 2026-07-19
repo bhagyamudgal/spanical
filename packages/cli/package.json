@@ -25,6 +25,7 @@
         "@drizzle-team/brocli": "^0.12",
         "@spanical/utils": "workspace:*",
         "date-fns": "^4",
+        "drizzle-orm": "^0.45.2",
         "zod": "^4"
     },
     "devDependencies": {
