@@ -4,5 +4,18 @@ export {
     type PerDevMetricKey,
     type ReadFlag,
 } from "./metrics";
-export type { DevPeriodRollup } from "./types";
+export type {
+    CodebaseSummary,
+    DevPeriodRollup,
+    FullAggregation,
+    LanguageSize,
+    MigrationChurn,
+    PeriodRollup,
+    RepoAggregation,
+    SizeTrendPoint,
+} from "./types";
 export { aggregatePerDev } from "./per-dev";
+export { aggregatePerPeriod } from "./per-period";
+export { aggregateSizeTrend } from "./size";
+export { aggregateSummary } from "./summary";
+export { aggregateAll } from "./aggregate";
