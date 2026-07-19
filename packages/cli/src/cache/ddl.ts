@@ -20,6 +20,12 @@ export const CREATE_TABLE_STATEMENTS = [
         authored_at INTEGER NOT NULL,
         is_merge INTEGER NOT NULL
     );`,
+    `CREATE TABLE commit_authors (
+        sha TEXT NOT NULL REFERENCES commits(sha),
+        author_id INTEGER NOT NULL REFERENCES authors(id),
+        weight REAL NOT NULL,
+        PRIMARY KEY (sha, author_id)
+    );`,
     `CREATE TABLE file_changes (
         sha TEXT NOT NULL REFERENCES commits(sha),
         repo TEXT NOT NULL,
@@ -52,6 +58,11 @@ export const CREATE_TABLE_STATEMENTS = [
 const INDEX_DEFINITIONS = [
     { name: "idx_commits_repo", table: "commits", columns: ["repo"] },
     { name: "idx_commits_author_id", table: "commits", columns: ["author_id"] },
+    {
+        name: "idx_commit_authors_author_id",
+        table: "commit_authors",
+        columns: ["author_id"],
+    },
     {
         name: "idx_commits_authored_at",
         table: "commits",

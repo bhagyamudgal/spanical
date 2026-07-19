@@ -2,6 +2,7 @@ import { getTableName } from "drizzle-orm";
 import {
     integer,
     primaryKey,
+    real,
     sqliteTable,
     text,
     type SQLiteTable,
@@ -29,6 +30,20 @@ export const commits = sqliteTable("commits", {
     authoredAt: integer("authored_at").notNull(),
     isMerge: integer("is_merge", { mode: "boolean" }).notNull(),
 });
+
+export const commitAuthors = sqliteTable(
+    "commit_authors",
+    {
+        sha: text("sha")
+            .notNull()
+            .references(() => commits.sha),
+        authorId: integer("author_id")
+            .notNull()
+            .references(() => authors.id),
+        weight: real("weight").notNull(),
+    },
+    (table) => [primaryKey({ columns: [table.sha, table.authorId] })]
+);
 
 export const fileChanges = sqliteTable(
     "file_changes",
@@ -72,6 +87,7 @@ export const cacheSchema = {
     authors,
     authorAliases,
     commits,
+    commitAuthors,
     fileChanges,
     sccSnapshots,
     extractions,
@@ -81,6 +97,7 @@ export const cacheTables: SQLiteTable[] = [
     authors,
     authorAliases,
     commits,
+    commitAuthors,
     fileChanges,
     sccSnapshots,
     extractions,
