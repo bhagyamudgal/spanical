@@ -83,6 +83,24 @@ export const extractions = sqliteTable("extractions", {
     extractedAt: integer("extracted_at").notNull(),
 });
 
+export const fileOwnership = sqliteTable(
+    "file_ownership",
+    {
+        repo: text("repo").notNull(),
+        headSha: text("head_sha").notNull(),
+        path: text("path").notNull(),
+        authorId: integer("author_id")
+            .notNull()
+            .references(() => authors.id),
+        survivingLines: integer("surviving_lines").notNull(),
+    },
+    (table) => [
+        primaryKey({
+            columns: [table.repo, table.headSha, table.path, table.authorId],
+        }),
+    ]
+);
+
 export const cacheSchema = {
     authors,
     authorAliases,
@@ -91,6 +109,7 @@ export const cacheSchema = {
     fileChanges,
     sccSnapshots,
     extractions,
+    fileOwnership,
 };
 
 export const cacheTables: SQLiteTable[] = [
@@ -101,6 +120,7 @@ export const cacheTables: SQLiteTable[] = [
     fileChanges,
     sccSnapshots,
     extractions,
+    fileOwnership,
 ];
 
 export const CACHE_TABLE_NAMES = cacheTables.map((table) =>

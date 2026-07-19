@@ -52,6 +52,36 @@ export type CodebaseSummary = {
     totalSizeNow: number;
 };
 
+export type OwnershipAuthorShare = {
+    author: string;
+    survivingLines: number;
+    share: number;
+};
+
+export type OwnershipRow = {
+    repo: string;
+    path: string;
+    totalLines: number;
+    ownerCount: number;
+    primaryOwner: string | null;
+    primaryShare: number;
+    isSoleOwned: boolean;
+    soleOwner: string | null;
+    shares: OwnershipAuthorShare[];
+};
+
+export type BusFactorRow = {
+    repo: string;
+    dir: string;
+    soleOwnedCount: number;
+    owners: string[];
+};
+
+export type OwnershipAggregation = {
+    files: OwnershipRow[];
+    busFactor: BusFactorRow[];
+};
+
 export type RepoAggregation = {
     summary: CodebaseSummary;
     perPeriod: PeriodRollup[];

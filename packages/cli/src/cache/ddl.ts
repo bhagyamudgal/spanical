@@ -53,6 +53,14 @@ export const CREATE_TABLE_STATEMENTS = [
         since TEXT,
         extracted_at INTEGER NOT NULL
     );`,
+    `CREATE TABLE file_ownership (
+        repo TEXT NOT NULL,
+        head_sha TEXT NOT NULL,
+        path TEXT NOT NULL,
+        author_id INTEGER NOT NULL REFERENCES authors(id),
+        surviving_lines INTEGER NOT NULL,
+        PRIMARY KEY (repo, head_sha, path, author_id)
+    );`,
 ];
 
 const INDEX_DEFINITIONS = [
@@ -74,6 +82,11 @@ const INDEX_DEFINITIONS = [
         name: "idx_scc_snapshots_repo",
         table: "scc_snapshots",
         columns: ["repo"],
+    },
+    {
+        name: "idx_file_ownership_head",
+        table: "file_ownership",
+        columns: ["repo", "head_sha"],
     },
 ] as const;
 
