@@ -1,4 +1,4 @@
-import { and, countDistinct, eq, gte, lt, sql } from "drizzle-orm";
+import { and, countDistinct, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import { commits, fileChanges } from "../cache/schema";
 import type { Period } from "../window/types";
@@ -8,6 +8,7 @@ export type RangeBounds = {
     start: number;
     end: number;
     repo: string | undefined;
+    repos?: string[];
 };
 
 export type ChurnTotals = {
@@ -28,7 +29,10 @@ function rangeFilter(bounds: RangeBounds) {
     return and(
         gte(commits.authoredAt, bounds.start),
         lt(commits.authoredAt, bounds.end),
-        bounds.repo ? eq(commits.repo, bounds.repo) : undefined
+        bounds.repo ? eq(commits.repo, bounds.repo) : undefined,
+        bounds.repos && bounds.repos.length > 0
+            ? inArray(commits.repo, bounds.repos)
+            : undefined
     );
 }
 
@@ -64,13 +68,14 @@ export function queryChurnTotals(
 
 export function aggregatePerPeriod(
     db: CacheDatabase,
-    opts: { periods: Period[]; repo?: string }
+    opts: { periods: Period[]; repo?: string; repos?: string[] }
 ): PeriodRollup[] {
     return opts.periods.map((period) => {
         const bounds: RangeBounds = {
             start: period.start.getTime(),
             end: period.end.getTime(),
             repo: opts.repo,
+            repos: opts.repos,
         };
         const commitCount = queryDistinctCommitCount(db, bounds);
         const churn = queryChurnTotals(db, bounds);

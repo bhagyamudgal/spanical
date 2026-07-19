@@ -1,5 +1,5 @@
 import { tryCatch } from "@spanical/utils";
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import { commitAuthors, commits, fileChanges } from "../cache/schema";
 import { runGit } from "../extract/git";
@@ -96,7 +96,8 @@ function busiestPeriodLabel(perPeriod: PeriodRollup[]): string | null {
 
 function queryCommitChurn(
     db: CacheDatabase,
-    bounds: WindowBounds
+    bounds: WindowBounds,
+    repoNames: string[]
 ): CommitChurnRow[] {
     return db
         .select({
@@ -112,6 +113,7 @@ function queryCommitChurn(
             and(
                 gte(commits.authoredAt, bounds.start),
                 lt(commits.authoredAt, bounds.end),
+                inArray(commits.repo, repoNames),
                 eq(fileChanges.isBinary, false),
                 eq(fileChanges.isMigration, false)
             )
@@ -122,7 +124,8 @@ function queryCommitChurn(
 
 function queryActiveDevRows(
     db: CacheDatabase,
-    bounds: WindowBounds
+    bounds: WindowBounds,
+    repoNames: string[]
 ): ActiveDevRow[] {
     return db
         .selectDistinct({
@@ -134,7 +137,8 @@ function queryActiveDevRows(
         .where(
             and(
                 gte(commits.authoredAt, bounds.start),
-                lt(commits.authoredAt, bounds.end)
+                lt(commits.authoredAt, bounds.end),
+                inArray(commits.repo, repoNames)
             )
         )
         .all();
@@ -289,17 +293,18 @@ export async function aggregateTimeline(
         return [];
     }
 
-    const perPeriod = aggregatePerPeriod(db, { periods });
+    const repoNames = opts.repos.map((repo) => repo.name);
+    const perPeriod = aggregatePerPeriod(db, { periods, repos: repoNames });
     const median = medianThroughput(perPeriod);
     const busiest = busiestPeriodLabel(perPeriod);
     const bounds = windowBounds(periods);
 
     const activeDevsByPeriod = countActiveDevsByPeriod(
-        queryActiveDevRows(db, bounds),
+        queryActiveDevRows(db, bounds, repoNames),
         periods
     );
     const dominantByPeriod = detectDominantCommits(
-        queryCommitChurn(db, bounds),
+        queryCommitChurn(db, bounds, repoNames),
         perPeriod,
         periods
     );
