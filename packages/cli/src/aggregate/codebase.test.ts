@@ -159,6 +159,7 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
                 code: 20,
                 complexity: 3,
                 sha: "c1",
+                isBoundary: true,
             },
             {
                 repo: "web-app",
@@ -168,6 +169,7 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
                 code: 25,
                 complexity: 4,
                 sha: "c2",
+                isBoundary: true,
             },
             {
                 repo: "web-app",
@@ -177,6 +179,7 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
                 code: 30,
                 complexity: 5,
                 sha: "c2",
+                isBoundary: true,
             },
             {
                 repo: "web-app",
@@ -186,6 +189,7 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
                 code: 8,
                 complexity: 0,
                 sha: "c2",
+                isBoundary: true,
             },
         ])
         .run();
@@ -272,6 +276,51 @@ test("aggregateSizeTrend groups scc snapshots by month with language breakdown",
                     { language: "SQL", code: 8 },
                     { language: "TypeScript", code: 55 },
                 ],
+            },
+        ]);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateSizeTrend counts only boundary snapshots, ignoring point-in-time ones", () => {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-size-isolation-"));
+    const handle = openCache({ cwd: dir });
+    try {
+        handle.db
+            .insert(sccSnapshots)
+            .values([
+                {
+                    repo: "web-app",
+                    month: "2025-08",
+                    path: "src/a.ts",
+                    language: "TypeScript",
+                    code: 100,
+                    complexity: 5,
+                    sha: "boundary-sha",
+                    isBoundary: true,
+                },
+                {
+                    repo: "web-app",
+                    month: "2025-08",
+                    path: "src/a.ts",
+                    language: "TypeScript",
+                    code: 999,
+                    complexity: 50,
+                    sha: "point-in-time-sha",
+                    isBoundary: false,
+                },
+            ])
+            .run();
+
+        const trend = aggregateSizeTrend(handle.db, { repo: "web-app" });
+        expect(trend).toEqual([
+            {
+                month: "2025-08",
+                totalCode: 100,
+                totalComplexity: 5,
+                languages: [{ language: "TypeScript", code: 100 }],
             },
         ]);
     } finally {

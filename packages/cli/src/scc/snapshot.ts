@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { tryCatch } from "@spanical/utils";
 import type { CacheDatabase } from "../cache/open";
 import { sccSnapshots } from "../cache/schema";
@@ -58,7 +58,16 @@ export async function snapshotSha(
     sha: string,
     sccBinary: string
 ): Promise<void> {
-    await snapshotCommit(db, repo, month, sha, sccBinary);
+    await snapshotCommit(db, repo, month, sha, sccBinary, false);
+}
+
+function staleBoundaryFilter(repo: string, month: string, sha: string) {
+    return and(
+        eq(sccSnapshots.repo, repo),
+        eq(sccSnapshots.month, month),
+        eq(sccSnapshots.isBoundary, true),
+        ne(sccSnapshots.sha, sha)
+    );
 }
 
 async function snapshotBoundary(
@@ -89,10 +98,24 @@ async function snapshotBoundary(
         .where(and(eq(sccSnapshots.repo, repo.name), eq(sccSnapshots.sha, sha)))
         .get();
     if (existing) {
+        db.transaction((tx) => {
+            tx.update(sccSnapshots)
+                .set({ isBoundary: true, month: boundary.month })
+                .where(
+                    and(
+                        eq(sccSnapshots.repo, repo.name),
+                        eq(sccSnapshots.sha, sha)
+                    )
+                )
+                .run();
+            tx.delete(sccSnapshots)
+                .where(staleBoundaryFilter(repo.name, boundary.month, sha))
+                .run();
+        });
         return { month: boundary.month, sha, status: "skipped" };
     }
 
-    await snapshotCommit(db, repo, boundary.month, sha, sccBinary);
+    await snapshotCommit(db, repo, boundary.month, sha, sccBinary, true);
     return { month: boundary.month, sha, status: "inserted" };
 }
 
@@ -101,7 +124,8 @@ async function snapshotCommit(
     repo: RepoRef,
     month: string,
     sha: string,
-    sccBinary: string
+    sccBinary: string,
+    isBoundary: boolean
 ): Promise<void> {
     const worktreeDir = mkdtempSync(join(tmpdir(), "spanical-scc-worktree-"));
     const added = await tryCatch(
@@ -117,7 +141,7 @@ async function snapshotCommit(
     }
 
     const scan = await tryCatch(
-        scanAndInsert(db, repo.name, month, sha, sccBinary, worktreeDir)
+        scanAndInsert(db, repo.name, month, sha, sccBinary, worktreeDir, isBoundary)
     );
     await cleanupWorktree(repo.path, worktreeDir);
     if (scan.error) {
@@ -131,7 +155,8 @@ async function scanAndInsert(
     month: string,
     sha: string,
     sccBinary: string,
-    worktreeDir: string
+    worktreeDir: string,
+    isBoundary: boolean
 ): Promise<void> {
     const entries = await runScc(sccBinary, worktreeDir);
     const rows: SnapshotRow[] = entries.map((entry) => ({
@@ -142,11 +167,17 @@ async function scanAndInsert(
         code: entry.code,
         complexity: entry.complexity,
         sha,
+        isBoundary,
     }));
     if (rows.length === 0) {
         return;
     }
     db.transaction((tx) => {
+        if (isBoundary) {
+            tx.delete(sccSnapshots)
+                .where(staleBoundaryFilter(repo, month, sha))
+                .run();
+        }
         for (
             let start = 0;
             start < rows.length;

@@ -127,6 +127,7 @@ function seedSnapshots(db: CacheDatabase, sha: string): void {
                 code: file.code,
                 complexity: 1,
                 sha,
+                isBoundary: false,
             }))
         )
         .run();
@@ -357,6 +358,7 @@ test("does not crash when a calendar month holds multiple snapshot SHAs after th
                         code: 120,
                         complexity: 1,
                         sha,
+                        isBoundary: false,
                     })
                     .run();
             }

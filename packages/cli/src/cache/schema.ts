@@ -71,6 +71,7 @@ export const sccSnapshots = sqliteTable(
         code: integer("code").notNull(),
         complexity: integer("complexity").notNull(),
         sha: text("sha").notNull(),
+        isBoundary: integer("is_boundary", { mode: "boolean" }).notNull(),
     },
     (table) => [primaryKey({ columns: [table.repo, table.sha, table.path] })]
 );

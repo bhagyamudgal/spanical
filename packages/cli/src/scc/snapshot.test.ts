@@ -6,11 +6,12 @@ import { dirname, join } from "node:path";
 import { and, count, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { tryCatch } from "@spanical/utils";
+import { aggregateSizeTrend } from "../aggregate/size";
 import { rebuildSchema, type CacheDatabase } from "../cache/open";
 import { cacheSchema, sccSnapshots } from "../cache/schema";
 import { SCC_ERROR_CODES, SccError } from "./errors";
 import { resolveSccBinary } from "./resolve";
-import { snapshotRepo, type SnapshotBoundary } from "./snapshot";
+import { snapshotRepo, snapshotSha, type SnapshotBoundary } from "./snapshot";
 
 const SCC_ON_PATH = Bun.which("scc");
 
@@ -121,6 +122,35 @@ function openTestCache(): { db: CacheDatabase; sqlite: Database } {
 
 function totalSnapshotRows(db: CacheDatabase): number {
     return db.select({ value: count() }).from(sccSnapshots).get()?.value ?? -1;
+}
+
+function boundaryShas(
+    db: CacheDatabase,
+    repo: string,
+    month: string
+): string[] {
+    const rows = db
+        .select({ sha: sccSnapshots.sha })
+        .from(sccSnapshots)
+        .where(
+            and(
+                eq(sccSnapshots.repo, repo),
+                eq(sccSnapshots.month, month),
+                eq(sccSnapshots.isBoundary, true)
+            )
+        )
+        .all();
+    return [...new Set(rows.map((row) => row.sha))];
+}
+
+function rowsForSha(db: CacheDatabase, sha: string): number {
+    return (
+        db
+            .select({ value: count() })
+            .from(sccSnapshots)
+            .where(eq(sccSnapshots.sha, sha))
+            .get()?.value ?? -1
+    );
 }
 
 function cleanup(dirs: string[]): void {
@@ -326,6 +356,106 @@ test.skipIf(SCC_ON_PATH === null)(
         } finally {
             sqlite.close();
             cleanup([repo, clonesParent]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "self-heals a month to a single boundary snapshot when the tip advances",
+    async () => {
+        const sccBinary = await resolveSccBinary();
+        const repo = initRepo();
+        commitAt(
+            repo,
+            "2026-02-15T10:00:00Z",
+            { [CLASSIFY_PATH]: CLASSIFY_TS },
+            "feat: classify"
+        );
+        const shaA = headSha(repo);
+        const { db, sqlite } = openTestCache();
+        try {
+            await snapshotRepo(
+                db,
+                { name: "web-app", path: repo },
+                "main",
+                [FEB_BOUNDARY],
+                sccBinary
+            );
+            expect(boundaryShas(db, "web-app", "2026-02")).toEqual([shaA]);
+
+            git(repo, ["commit", "-q", "--allow-empty", "-m", "chore: retrigger"], {
+                GIT_AUTHOR_DATE: "2026-02-20T10:00:00Z",
+                GIT_COMMITTER_DATE: "2026-02-20T10:00:00Z",
+            });
+            const shaB = headSha(repo);
+            expect(shaB).not.toBe(shaA);
+
+            const second = await snapshotRepo(
+                db,
+                { name: "web-app", path: repo },
+                "main",
+                [FEB_BOUNDARY],
+                sccBinary
+            );
+            expect(second.snapshots).toEqual([
+                { month: "2026-02", sha: shaB, status: "inserted" },
+            ]);
+
+            expect(boundaryShas(db, "web-app", "2026-02")).toEqual([shaB]);
+            expect(rowsForSha(db, shaA)).toBe(0);
+
+            const trend = aggregateSizeTrend(db, { repo: "web-app" });
+            const february = trend.find((point) => point.month === "2026-02");
+            expect(february?.totalCode).toBe(CLASSIFY_CODE);
+        } finally {
+            sqlite.close();
+            cleanup([repo]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "promotes an existing point-in-time snapshot to the month's boundary on skip",
+    async () => {
+        const sccBinary = await resolveSccBinary();
+        const repo = initRepo();
+        commitAt(
+            repo,
+            "2026-02-15T10:00:00Z",
+            { [CLASSIFY_PATH]: CLASSIFY_TS },
+            "feat: classify"
+        );
+        const sha = headSha(repo);
+        const { db, sqlite } = openTestCache();
+        try {
+            await snapshotSha(
+                db,
+                { name: "web-app", path: repo },
+                "2026-02",
+                sha,
+                sccBinary
+            );
+            expect(boundaryShas(db, "web-app", "2026-02")).toEqual([]);
+
+            const result = await snapshotRepo(
+                db,
+                { name: "web-app", path: repo },
+                "main",
+                [FEB_BOUNDARY],
+                sccBinary
+            );
+            expect(result.snapshots).toEqual([
+                { month: "2026-02", sha, status: "skipped" },
+            ]);
+
+            expect(boundaryShas(db, "web-app", "2026-02")).toEqual([sha]);
+
+            const trend = aggregateSizeTrend(db, { repo: "web-app" });
+            const february = trend.find((point) => point.month === "2026-02");
+            expect(february?.totalCode).toBe(CLASSIFY_CODE);
+        } finally {
+            sqlite.close();
+            cleanup([repo]);
         }
     }
 );

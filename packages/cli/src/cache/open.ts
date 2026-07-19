@@ -8,7 +8,7 @@ import { CREATE_INDEX_STATEMENTS, CREATE_TABLE_STATEMENTS } from "./ddl";
 import { CacheError, CACHE_ERROR_CODES } from "./errors";
 import { cacheSchema, CACHE_TABLE_NAMES } from "./schema";
 
-export const CACHE_SCHEMA_VERSION = 3;
+export const CACHE_SCHEMA_VERSION = 4;
 
 const CACHE_DIR_NAME = ".spanical";
 const CACHE_DB_NAME = "cache.db";

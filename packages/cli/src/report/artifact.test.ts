@@ -179,6 +179,7 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
                 code: 20,
                 complexity: 3,
                 sha: "c1",
+                isBoundary: true,
             },
             {
                 repo: "web-app",
@@ -188,6 +189,7 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
                 code: 25,
                 complexity: 4,
                 sha: "c2",
+                isBoundary: true,
             },
             {
                 repo: "web-app",
@@ -197,6 +199,7 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
                 code: 30,
                 complexity: 5,
                 sha: "c2",
+                isBoundary: true,
             },
             {
                 repo: "web-app",
@@ -206,6 +209,7 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
                 code: 8,
                 complexity: 0,
                 sha: "c2",
+                isBoundary: true,
             },
         ])
         .run();
