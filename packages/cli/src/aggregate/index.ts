@@ -7,6 +7,8 @@ export {
 export type {
     BusFactorRow,
     CodebaseSummary,
+    ComplexityAttribution,
+    DevComplexityRollup,
     DevPeriodRollup,
     FullAggregation,
     HotspotRow,
@@ -26,3 +28,7 @@ export { aggregateSummary } from "./summary";
 export { aggregateAll } from "./aggregate";
 export { aggregateOwnership } from "./ownership";
 export { aggregateHotspots } from "./hotspots";
+export {
+    aggregateComplexityAttribution,
+    HOTSPOT_CONTRIBUTION_TOP_N,
+} from "./complexity";
