@@ -12,14 +12,13 @@ import type { globalFlags } from "./global-flags";
 
 type RunFlags = TypeOf<typeof globalFlags>;
 
-const DEFAULT_BY = "dev";
 const DEFAULT_FORMAT = "table";
 
 export type ResolvedRun = {
     repos: { name: string; path: string; branch?: string }[];
     tz: string;
     exclude: string[];
-    by: "dev" | "file" | "dir" | "language";
+    by: "dev" | "file" | "dir" | "language" | null;
     format: "table" | "json" | "md";
     out: string | null;
     cache: boolean;
@@ -84,7 +83,7 @@ export async function resolveRunConfig(input: {
         repos,
         tz,
         exclude,
-        by: flags.by ?? DEFAULT_BY,
+        by: flags.by ?? null,
         format: flags.format ?? DEFAULT_FORMAT,
         out: flags.out ?? null,
         cache: !flags["no-cache"],

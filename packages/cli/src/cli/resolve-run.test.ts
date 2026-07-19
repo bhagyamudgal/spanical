@@ -102,7 +102,7 @@ test("by, format, out, and cache fall back to their defaults", async () => {
     const dir = writeFixture();
     try {
         const run = await resolveRunConfig({ flags: {}, cwd: dir, now: NOW });
-        expect(run.by).toBe("dev");
+        expect(run.by).toBeNull();
         expect(run.format).toBe("table");
         expect(run.out).toBeNull();
         expect(run.cache).toBe(true);
