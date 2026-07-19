@@ -2,6 +2,7 @@ import { PER_DEV_METRICS } from "../aggregate/metrics";
 import type {
     BusFactorRow,
     DevPeriodRollup,
+    HotspotRow,
     LanguageSize,
     OwnershipRow,
     PeriodRollup,
@@ -13,6 +14,7 @@ const PERCENT_SCALE = 100;
 const SOLE_OWNED_YES = "yes";
 const SOLE_OWNED_NO = "-";
 const OWNERS_SEPARATOR = ", ";
+const SCORE_DECIMALS = 3;
 
 function toPercent(share: number): string {
     return `${Math.round(share * PERCENT_SCALE)}%`;
@@ -121,6 +123,25 @@ export function busFactorTable(rows: BusFactorRow[]): TableModel {
             dir: row.dir,
             soleOwned: row.soleOwnedCount,
             owners: row.owners.join(OWNERS_SEPARATOR),
+        })),
+    };
+}
+
+export function hotspotsTable(rows: HotspotRow[]): TableModel {
+    return {
+        columns: [
+            { key: "path", label: "Path", align: "left" },
+            { key: "changeFrequency", label: "Change freq", align: "right" },
+            { key: "complexity", label: "Complexity", align: "right" },
+            { key: "score", label: "Score", align: "right" },
+            { key: "owners", label: "#Owners", align: "right" },
+        ],
+        rows: rows.map((row) => ({
+            path: `${row.repo}/${row.path}`,
+            changeFrequency: row.changeFrequency,
+            complexity: row.complexity,
+            score: row.score.toFixed(SCORE_DECIMALS),
+            owners: row.ownerCount,
         })),
     };
 }

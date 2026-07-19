@@ -1,4 +1,5 @@
 import {
+    aggregateHotspots,
     aggregateOwnership,
     aggregatePerDev,
     aggregatePerPeriod,
@@ -10,6 +11,7 @@ import { loadConfig } from "../config/load";
 import {
     churnPeriodTable,
     devTable,
+    hotspotsTable,
     renderData,
     renderOwnershipReport,
     sizeTable,
@@ -18,6 +20,7 @@ import {
     ensureExtracted,
     ensureMonthlySnapshots,
     ensureOwnership,
+    ensureWindowEndSnapshot,
     resolveWindowStart,
 } from "./prepare";
 
@@ -113,6 +116,31 @@ export async function runOwnership(
             busFactorThreshold: config.hotspot.busFactorThreshold,
         });
         return renderOwnershipReport(run.format, result);
+    } finally {
+        handle.sqlite.close();
+    }
+}
+
+export async function runHotspots(
+    run: ResolvedRun,
+    configPath: string | undefined,
+    now: Date
+): Promise<string> {
+    await ensureExtracted(configPath, run.cache, now);
+    const config = await loadConfig({ configPath });
+    const handle = openCache({ configPath });
+    try {
+        await ensureMonthlySnapshots(handle.db, run);
+        await ensureOwnership(handle.db, run, config);
+        const windowEndShas = await ensureWindowEndSnapshot(handle.db, run);
+        const rows = aggregateHotspots(handle.db, {
+            window: run.window,
+            repos: run.repos.map((repo) => repo.name),
+            minFileLines: config.hotspot.minFileLines,
+            busFactorThreshold: config.hotspot.busFactorThreshold,
+            windowEndShas,
+        });
+        return renderData(run.format, hotspotsTable(rows), rows);
     } finally {
         handle.sqlite.close();
     }

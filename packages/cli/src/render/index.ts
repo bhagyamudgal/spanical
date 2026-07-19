@@ -25,6 +25,7 @@ export {
     busFactorTable,
     churnPeriodTable,
     devTable,
+    hotspotsTable,
     ownershipTable,
     sizeTable,
 } from "./tables";
