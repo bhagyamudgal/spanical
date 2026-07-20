@@ -141,7 +141,15 @@ async function snapshotCommit(
     }
 
     const scan = await tryCatch(
-        scanAndInsert(db, repo.name, month, sha, sccBinary, worktreeDir, isBoundary)
+        scanAndInsert(
+            db,
+            repo.name,
+            month,
+            sha,
+            sccBinary,
+            worktreeDir,
+            isBoundary
+        )
     );
     await cleanupWorktree(repo.path, worktreeDir);
     if (scan.error) {

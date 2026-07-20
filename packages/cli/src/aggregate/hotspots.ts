@@ -72,10 +72,7 @@ function complexityByPath(
         })
         .from(sccSnapshots)
         .where(
-            and(
-                eq(sccSnapshots.repo, repo),
-                eq(sccSnapshots.sha, windowEndSha)
-            )
+            and(eq(sccSnapshots.repo, repo), eq(sccSnapshots.sha, windowEndSha))
         )
         .all();
 
