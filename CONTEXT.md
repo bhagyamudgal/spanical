@@ -5,7 +5,7 @@ A local-first code-insights CLI that reads git history and tells the story of a 
 ## Language
 
 **Hotspot**:
-A file that scores high on both change frequency and complexity at once — the refactor shortlist. Neither axis alone qualifies a file; the *product* of the two is the signal.
+A file that scores high on both change frequency and complexity at once — the refactor shortlist. Neither axis alone qualifies a file; the _product_ of the two is the signal.
 _Avoid_: risky file, problem file
 
 **Change frequency**:
@@ -13,7 +13,7 @@ The count of distinct no-merge commits that touched a file within the analysis w
 _Avoid_: churn frequency, revision count
 
 **Throughput churn**:
-Added + deleted lines over a span (`added + deleted`). The volume-of-edits measure. Deliberately *not* the change-frequency axis of a Hotspot — it is dominated by one-off bulk edits.
+Added + deleted lines over a span (`added + deleted`). The volume-of-edits measure. Deliberately _not_ the change-frequency axis of a Hotspot — it is dominated by one-off bulk edits.
 _Avoid_: churn (unqualified), LOC touched
 
 **Complexity**:
