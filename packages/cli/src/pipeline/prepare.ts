@@ -12,7 +12,7 @@ import type { ResolvedRun } from "../cli/resolve-run";
 import type { SpanicalConfig } from "../config/schema";
 import { extractAll } from "../extract";
 import { seedAndResolveAuthors, type AuthorResolver } from "../extract/authors";
-import { blameFile } from "../extract/blame";
+import { blameFile, type BlameTally } from "../extract/blame";
 import { resolveDefaultBranch, runGit } from "../extract/git";
 import {
     resolveSccBinary,
@@ -23,6 +23,7 @@ import {
 import { generatePeriods } from "../window";
 
 const OWNERSHIP_INSERT_BATCH_SIZE = 1000;
+const BLAME_CONCURRENCY = 16;
 const TIP_MONTH_FORMAT = "yyyy-MM";
 
 type OwnershipInsertRow = typeof fileOwnership.$inferInsert;
@@ -116,7 +117,10 @@ async function tipCommitMonth(
     const iso = (
         await runGit(["show", "-s", "--format=%cI", tipSha], repoPath)
     ).trim();
-    return format(new TZDate(new Date(iso).getTime(), timezone), TIP_MONTH_FORMAT);
+    return format(
+        new TZDate(new Date(iso).getTime(), timezone),
+        TIP_MONTH_FORMAT
+    );
 }
 
 async function ensureTipSnapshot(
@@ -150,8 +154,19 @@ async function blameRepoOwnership(
     const paths = tipSnapshotFiles(db, repo.name, tipSha, minFileLines);
     const rows: OwnershipInsertRow[] = [];
 
-    for (const path of paths) {
-        const tally = await blameFile(repo.path, tipSha, path);
+    const blameResults: { path: string; tally: BlameTally | null }[] = [];
+    for (let start = 0; start < paths.length; start += BLAME_CONCURRENCY) {
+        const chunk = paths.slice(start, start + BLAME_CONCURRENCY);
+        const chunkResults = await Promise.all(
+            chunk.map(async (path) => ({
+                path,
+                tally: await blameFile(repo.path, tipSha, path),
+            }))
+        );
+        blameResults.push(...chunkResults);
+    }
+
+    for (const { path, tally } of blameResults) {
         if (tally === null) {
             continue;
         }
@@ -190,6 +205,7 @@ async function blameRepoOwnership(
         ) {
             tx.insert(fileOwnership)
                 .values(rows.slice(start, start + OWNERSHIP_INSERT_BATCH_SIZE))
+                .onConflictDoNothing()
                 .run();
         }
     });

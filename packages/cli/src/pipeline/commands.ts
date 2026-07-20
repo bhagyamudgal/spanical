@@ -102,8 +102,10 @@ export async function runOwnership(
     configPath: string | undefined,
     now: Date
 ): Promise<string> {
-    await ensureExtracted(configPath, run.cache, now);
-    const config = await loadConfig({ configPath });
+    const [config] = await Promise.all([
+        loadConfig({ configPath }),
+        ensureExtracted(configPath, run.cache, now),
+    ]);
     const handle = openCache({ configPath });
     try {
         await ensureMonthlySnapshots(handle.db, run);
