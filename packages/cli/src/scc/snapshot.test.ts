@@ -383,10 +383,14 @@ test.skipIf(SCC_ON_PATH === null)(
             );
             expect(boundaryShas(db, "web-app", "2026-02")).toEqual([shaA]);
 
-            git(repo, ["commit", "-q", "--allow-empty", "-m", "chore: retrigger"], {
-                GIT_AUTHOR_DATE: "2026-02-20T10:00:00Z",
-                GIT_COMMITTER_DATE: "2026-02-20T10:00:00Z",
-            });
+            git(
+                repo,
+                ["commit", "-q", "--allow-empty", "-m", "chore: retrigger"],
+                {
+                    GIT_AUTHOR_DATE: "2026-02-20T10:00:00Z",
+                    GIT_COMMITTER_DATE: "2026-02-20T10:00:00Z",
+                }
+            );
             const shaB = headSha(repo);
             expect(shaB).not.toBe(shaA);
 
