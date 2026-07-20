@@ -92,7 +92,9 @@ function seedFixture(): Fixture {
     const handle = openCache({ cwd: cacheDir });
     const { db } = handle;
 
-    db.insert(authors).values([{ id: 1, canonicalName: "dev-one" }]).run();
+    db.insert(authors)
+        .values([{ id: 1, canonicalName: "dev-one" }])
+        .run();
 
     const authoredP2 = Date.UTC(2025, 1, 15);
     const authoredP3 = Date.UTC(2025, 2, 15);
@@ -101,17 +103,59 @@ function seedFixture(): Fixture {
 
     db.insert(commits)
         .values([
-            { sha: xb, repo: REPO, authorId: 1, authoredAt: authoredP2, isMerge: false },
-            { sha: "yb", repo: REPO, authorId: 1, authoredAt: authoredP2, isMerge: false },
-            { sha: "zb", repo: REPO, authorId: 1, authoredAt: authoredP2, isMerge: false },
-            { sha: h, repo: REPO, authorId: 1, authoredAt: authoredP3, isMerge: false },
-            { sha: f, repo: REPO, authorId: 1, authoredAt: authoredP4, isMerge: false },
-            { sha: a, repo: REPO, authorId: 1, authoredAt: authoredP5, isMerge: false },
+            {
+                sha: xb,
+                repo: REPO,
+                authorId: 1,
+                authoredAt: authoredP2,
+                isMerge: false,
+            },
+            {
+                sha: "yb",
+                repo: REPO,
+                authorId: 1,
+                authoredAt: authoredP2,
+                isMerge: false,
+            },
+            {
+                sha: "zb",
+                repo: REPO,
+                authorId: 1,
+                authoredAt: authoredP2,
+                isMerge: false,
+            },
+            {
+                sha: h,
+                repo: REPO,
+                authorId: 1,
+                authoredAt: authoredP3,
+                isMerge: false,
+            },
+            {
+                sha: f,
+                repo: REPO,
+                authorId: 1,
+                authoredAt: authoredP4,
+                isMerge: false,
+            },
+            {
+                sha: a,
+                repo: REPO,
+                authorId: 1,
+                authoredAt: authoredP5,
+                isMerge: false,
+            },
         ])
         .run();
 
     db.insert(commitAuthors)
-        .values([xb, "yb", "zb", h, f, a].map((sha) => ({ sha, authorId: 1, weight: 1.0 })))
+        .values(
+            [xb, "yb", "zb", h, f, a].map((sha) => ({
+                sha,
+                authorId: 1,
+                weight: 1.0,
+            }))
+        )
         .run();
 
     db.insert(fileChanges)
@@ -141,11 +185,12 @@ function cleanup(fixture: Fixture): void {
     rmSync(fixture.repoDir, { recursive: true, force: true });
 }
 
-function dominantEvent(events: TimelineEvent[]): Extract<
-    TimelineEvent,
-    { kind: "dominant-commit" }
-> {
-    const event = events.find((candidate) => candidate.kind === "dominant-commit");
+function dominantEvent(
+    events: TimelineEvent[]
+): Extract<TimelineEvent, { kind: "dominant-commit" }> {
+    const event = events.find(
+        (candidate) => candidate.kind === "dominant-commit"
+    );
     if (event === undefined || event.kind !== "dominant-commit") {
         throw new Error("expected a dominant-commit event");
     }
