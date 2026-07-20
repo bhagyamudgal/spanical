@@ -177,7 +177,10 @@ function indexChurn(
     const hotspotByDev = new Map<number, number>();
 
     for (const row of rows) {
-        const month = format(new TZDate(row.authoredAt, timezone), MONTH_FORMAT);
+        const month = format(
+            new TZDate(row.authoredAt, timezone),
+            MONTH_FORMAT
+        );
         const churn = ((row.added ?? 0) + (row.deleted ?? 0)) * row.weight;
 
         totalByDev.set(

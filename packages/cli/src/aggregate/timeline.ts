@@ -253,7 +253,13 @@ function buildEvents(input: {
     dominants: DominantCommit[];
     subjects: Map<string, string>;
 }): TimelineEvent[] {
-    const { rollup, median, busiestLabel: busiest, dominants, subjects } = input;
+    const {
+        rollup,
+        median,
+        busiestLabel: busiest,
+        dominants,
+        subjects,
+    } = input;
     const events: TimelineEvent[] = [];
 
     if (busiest !== null && rollup.period === busiest) {

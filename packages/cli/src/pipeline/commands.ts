@@ -100,9 +100,7 @@ export async function runContributors(
             });
         }
         const contributors = aggregatePerDev(handle.db, {
-            periods: [
-                { label: run.window.label, start, end: run.window.end },
-            ],
+            periods: [{ label: run.window.label, start, end: run.window.end }],
             timezone: run.tz,
         });
         const attribution = aggregateComplexityAttribution(handle.db, {
@@ -147,8 +145,10 @@ export async function runOwnership(
     configPath: string | undefined,
     now: Date
 ): Promise<string> {
-    await ensureExtracted(configPath, run.cache, now);
-    const config = await loadConfig({ configPath });
+    const [config] = await Promise.all([
+        loadConfig({ configPath }),
+        ensureExtracted(configPath, run.cache, now),
+    ]);
     const handle = openCache({ configPath });
     try {
         await ensureMonthlySnapshots(handle.db, run);
