@@ -26,9 +26,7 @@ function hotspotLine(row: HotspotRow): string {
 }
 
 function hotspotsShortlist(hotspots: HotspotRow[]): string {
-    const lines = hotspots
-        .slice(0, TOP_HOTSPOTS_IN_HEADLINE)
-        .map(hotspotLine);
+    const lines = hotspots.slice(0, TOP_HOTSPOTS_IN_HEADLINE).map(hotspotLine);
     return [HOTSPOTS_HEADING, ...lines].join("\n");
 }
 

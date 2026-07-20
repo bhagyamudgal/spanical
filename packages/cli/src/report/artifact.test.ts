@@ -859,9 +859,7 @@ test("buildReportArtifact scopes each repo's appendix to that repo alone", async
         expect(apiBlock).not.toContain("| 2025-07 | 46 | 68 |");
         expect(apiBlock).not.toContain("| 2025-07 | 40 | 60 |");
 
-        expect(apiBlock).toContain(
-            "| api/src/route.ts | 2 | 8 | 1.000 | 1 |"
-        );
+        expect(apiBlock).toContain("| api/src/route.ts | 2 | 8 | 1.000 | 1 |");
         expect(webBlock).toContain("web/src/home.ts");
         expect(webBlock).not.toContain("api/src/route.ts");
         expect(apiBlock).toContain("api/src/route.ts");

@@ -8,7 +8,10 @@ import {
     aggregatePerDev,
     aggregateTimeline,
 } from "../aggregate";
-import type { ComplexityAttribution, DevPeriodRollup } from "../aggregate/types";
+import type {
+    ComplexityAttribution,
+    DevPeriodRollup,
+} from "../aggregate/types";
 import type { CacheDatabase } from "../cache/open";
 import { openCache } from "../cache/open";
 import { globalFlags } from "../cli/global-flags";
