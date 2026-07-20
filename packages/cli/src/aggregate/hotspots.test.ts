@@ -399,7 +399,13 @@ test("reads complexity deterministically from the window-end snapshot when a pas
             seedSnapshots(
                 handle.db,
                 staleSha,
-                [{ path: "src/big.ts", code: 100, complexity: staleComplexity }],
+                [
+                    {
+                        path: "src/big.ts",
+                        code: 100,
+                        complexity: staleComplexity,
+                    },
+                ],
                 "2026-06"
             );
 

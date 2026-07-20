@@ -26,9 +26,27 @@ function commitBlock(
 
 test("tallies surviving lines per author email across line-porcelain blocks", () => {
     const output = [
-        commitBlock("1111111111111111111111111111111111111111", "Dev One", "dev-one@example.com", 1, "const a = 1;"),
-        commitBlock("2222222222222222222222222222222222222222", "Dev Two", "dev-two@example.com", 2, "const b = 2;"),
-        commitBlock("1111111111111111111111111111111111111111", "Dev One", "dev-one@example.com", 3, "const c = 3;"),
+        commitBlock(
+            "1111111111111111111111111111111111111111",
+            "Dev One",
+            "dev-one@example.com",
+            1,
+            "const a = 1;"
+        ),
+        commitBlock(
+            "2222222222222222222222222222222222222222",
+            "Dev Two",
+            "dev-two@example.com",
+            2,
+            "const b = 2;"
+        ),
+        commitBlock(
+            "1111111111111111111111111111111111111111",
+            "Dev One",
+            "dev-one@example.com",
+            3,
+            "const c = 3;"
+        ),
     ].join("\n");
 
     const tally = parseBlamePorcelain(output);
