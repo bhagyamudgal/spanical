@@ -77,9 +77,7 @@ export async function runContributors(
             });
         }
         const contributors = aggregatePerDev(handle.db, {
-            periods: [
-                { label: run.window.label, start, end: run.window.end },
-            ],
+            periods: [{ label: run.window.label, start, end: run.window.end }],
             timezone: run.tz,
         });
         const attribution = aggregateComplexityAttribution(handle.db, {
