@@ -200,22 +200,45 @@ function detectDominantCommits(
     return byPeriod;
 }
 
+type SubjectFallback = "none" | "unconfigured-repo" | "git-failed";
+
+type SubjectResult = { subject: string; fallback: SubjectFallback };
+
 async function fetchSubject(
     dominant: DominantCommit,
     pathByRepo: Map<string, string>
-): Promise<string> {
+): Promise<SubjectResult> {
     const repoPath = pathByRepo.get(dominant.repo);
     if (repoPath === undefined) {
-        return dominant.shortSha;
+        return { subject: dominant.shortSha, fallback: "unconfigured-repo" };
     }
     const { data, error } = await tryCatch(
         runGit(["show", "-s", "--format=%s", dominant.sha], repoPath)
     );
     if (error !== null) {
-        return dominant.shortSha;
+        return { subject: dominant.shortSha, fallback: "git-failed" };
     }
     const subject = data.trim();
-    return subject.length > 0 ? subject : dominant.shortSha;
+    return {
+        subject: subject.length > 0 ? subject : dominant.shortSha,
+        fallback: "none",
+    };
+}
+
+function subjectFallbackWarning(
+    unconfiguredRepoCount: number,
+    gitFailedCount: number
+): string {
+    const causes: string[] = [];
+    if (unconfiguredRepoCount > 0) {
+        causes.push(
+            `${unconfiguredRepoCount} from a repo not configured in this run (config or cache may be stale)`
+        );
+    }
+    if (gitFailedCount > 0) {
+        causes.push(`${gitFailedCount} git could not read`);
+    }
+    return `warning: dominant-commit subject fetch fell back to short SHAs: ${causes.join("; ")}.\n`;
 }
 
 async function fetchDominantSubjects(
@@ -224,13 +247,31 @@ async function fetchDominantSubjects(
 ): Promise<Map<string, string>> {
     const pathByRepo = new Map(repos.map((repo) => [repo.name, repo.path]));
     const dominants = [...dominantByPeriod.values()].flat();
-    const entries = await Promise.all(
+    const results = await Promise.all(
         dominants.map(async (dominant) => {
-            const subject = await fetchSubject(dominant, pathByRepo);
-            return [dominant.sha, subject] as const;
+            const { subject, fallback } = await fetchSubject(
+                dominant,
+                pathByRepo
+            );
+            return { sha: dominant.sha, subject, fallback };
         })
     );
-    return new Map(entries);
+
+    const unconfiguredRepoCount = results.filter(
+        (result) => result.fallback === "unconfigured-repo"
+    ).length;
+    const gitFailedCount = results.filter(
+        (result) => result.fallback === "git-failed"
+    ).length;
+    if (unconfiguredRepoCount > 0 || gitFailedCount > 0) {
+        process.stderr.write(
+            subjectFallbackWarning(unconfiguredRepoCount, gitFailedCount)
+        );
+    }
+
+    return new Map(
+        results.map((result) => [result.sha, result.subject] as const)
+    );
 }
 
 function spikeLabel(multiple: number): string {
@@ -269,7 +310,11 @@ function buildEvents(input: {
             multiple,
         });
     }
-    if (rollup.net < 0 && rollup.throughput >= REMOVAL_MIN_SHARE * median) {
+    if (
+        median > 0 &&
+        rollup.net < 0 &&
+        rollup.throughput >= REMOVAL_MIN_SHARE * median
+    ) {
         events.push({ kind: "removal", label: REMOVAL_LABEL });
     }
     for (const dominant of dominants) {
