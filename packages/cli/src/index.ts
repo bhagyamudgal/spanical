@@ -6,6 +6,7 @@ import { hotspotsCommand } from "./commands/hotspots";
 import { ownershipCommand } from "./commands/ownership";
 import { reportCommand } from "./commands/report";
 import { sizeCommand } from "./commands/size";
+import { timelineCommand } from "./commands/timeline";
 import pkg from "../package.json";
 
 run(
@@ -16,6 +17,7 @@ run(
         sizeCommand,
         ownershipCommand,
         hotspotsCommand,
+        timelineCommand,
         cacheCommand,
     ],
     {

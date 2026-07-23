@@ -52,6 +52,30 @@ export type CodebaseSummary = {
     totalSizeNow: number;
 };
 
+export type DominantCommitSubtype = "landing" | "removal" | "restructure";
+
+export type TimelineEvent =
+    | {
+          kind: "dominant-commit";
+          label: string;
+          sha: string;
+          subject: string;
+          share: number;
+          subtype: DominantCommitSubtype;
+      }
+    | { kind: "churn-spike"; label: string; multiple: number }
+    | { kind: "removal"; label: string }
+    | { kind: "busiest"; label: string };
+
+export type TimelinePeriod = {
+    period: string;
+    net: number;
+    throughput: number;
+    commits: number;
+    activeDevs: number;
+    events: TimelineEvent[];
+};
+
 export type OwnershipAuthorShare = {
     author: string;
     survivingLines: number;

@@ -5,6 +5,7 @@ import {
     aggregatePerDev,
     aggregatePerPeriod,
     aggregateSizeTrend,
+    aggregateTimeline,
 } from "../aggregate";
 import { openCache } from "../cache/open";
 import type { ResolvedRun } from "../cli/resolve-run";
@@ -17,6 +18,7 @@ import {
     renderData,
     renderOwnershipReport,
     sizeTable,
+    timelineTable,
 } from "../render";
 import {
     ensureBaselineSnapshots,
@@ -50,6 +52,27 @@ export async function runChurn(
             periods: run.window.periods,
         });
         return renderData(run.format, churnPeriodTable(rows), rows);
+    } finally {
+        handle.sqlite.close();
+    }
+}
+
+export async function runTimeline(
+    run: ResolvedRun,
+    configPath: string | undefined,
+    now: Date
+): Promise<string> {
+    await ensureExtracted(configPath, run.cache, now);
+    const handle = openCache({ configPath });
+    try {
+        const rows = await aggregateTimeline(handle.db, {
+            window: run.window,
+            repos: run.repos.map((repo) => ({
+                name: repo.name,
+                path: repo.path,
+            })),
+        });
+        return renderData(run.format, timelineTable(rows), rows);
     } finally {
         handle.sqlite.close();
     }

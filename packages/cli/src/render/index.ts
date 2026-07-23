@@ -39,6 +39,7 @@ export {
     hotspotsTable,
     ownershipTable,
     sizeTable,
+    timelineTable,
 } from "./tables";
 export { writeRendered } from "./output";
 

@@ -10,6 +10,7 @@ export type {
     ComplexityAttribution,
     DevComplexityRollup,
     DevPeriodRollup,
+    DominantCommitSubtype,
     FullAggregation,
     HotspotRow,
     LanguageSize,
@@ -20,11 +21,14 @@ export type {
     PeriodRollup,
     RepoAggregation,
     SizeTrendPoint,
+    TimelineEvent,
+    TimelinePeriod,
 } from "./types";
 export { aggregatePerDev } from "./per-dev";
 export { aggregatePerPeriod } from "./per-period";
 export { aggregateSizeTrend } from "./size";
 export { aggregateSummary } from "./summary";
+export { aggregateTimeline } from "./timeline";
 export { aggregateAll } from "./aggregate";
 export { aggregateOwnership } from "./ownership";
 export { aggregateHotspots } from "./hotspots";
