@@ -88,6 +88,21 @@ export type HotspotRow = {
     ownerCount: number;
 };
 
+export type DevComplexityRollup = {
+    author: string;
+    authorId: number;
+    complexityAdded: number;
+    complexityRemoved: number;
+    complexityNet: number;
+    complexityPerAddedLine: number | null;
+    hotspotContribution: number | null;
+};
+
+export type ComplexityAttribution = {
+    devs: DevComplexityRollup[];
+    unattributed: number;
+};
+
 export type OwnershipAggregation = {
     files: OwnershipRow[];
     busFactor: BusFactorRow[];

@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { count } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import type { TypeOf } from "@drizzle-team/brocli";
 import { openCache } from "../cache/open";
 import { sccSnapshots } from "../cache/schema";
@@ -36,6 +36,21 @@ const API_TS = `export function api(value: number): string {
     return String(value);
 }
 `;
+const LOGIC_TS = `export function classify(value: number): string {
+    if (value > 100) {
+        return "huge";
+    }
+    if (value > 10) {
+        return "big";
+    }
+    for (let index = 0; index < value; index += 1) {
+        if (index % 2 === 0) {
+            continue;
+        }
+    }
+    return value > 0 ? "small" : "none";
+}
+`;
 
 type Author = { name: string; email: string };
 type RunFlags = Partial<TypeOf<typeof globalFlags>>;
@@ -59,6 +74,57 @@ function initRepo(): string {
     git(dir, ["config", "user.email", "ci@example.com"]);
     git(dir, ["config", "commit.gpgsign", "false"]);
     return dir;
+}
+
+function boundaryComplexity(
+    handle: ReturnType<typeof openCache>,
+    month: string,
+    path: string
+): number {
+    const row = handle.db
+        .select({ complexity: sccSnapshots.complexity })
+        .from(sccSnapshots)
+        .where(
+            and(
+                eq(sccSnapshots.repo, "web-app"),
+                eq(sccSnapshots.isBoundary, true),
+                eq(sccSnapshots.month, month),
+                eq(sccSnapshots.path, path)
+            )
+        )
+        .get();
+    if (row === undefined) {
+        throw new Error(`No boundary snapshot for ${path} in ${month}`);
+    }
+    return row.complexity;
+}
+
+function complexityAddedFor(json: string, author: string): number {
+    const parsed: unknown = JSON.parse(json);
+    if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        !("complexity" in parsed)
+    ) {
+        throw new Error("Expected complexity in json output");
+    }
+    const { complexity } = parsed;
+    if (!Array.isArray(complexity)) {
+        throw new Error("Expected a complexity array");
+    }
+    for (const row of complexity) {
+        if (
+            typeof row === "object" &&
+            row !== null &&
+            "author" in row &&
+            row.author === author &&
+            "complexityAdded" in row &&
+            typeof row.complexityAdded === "number"
+        ) {
+            return row.complexityAdded;
+        }
+    }
+    throw new Error(`No complexity row for ${author}`);
 }
 
 function commitAt(
@@ -198,35 +264,92 @@ test("runChurn --by dev switches to the per-dev table with flag markers", async 
     }
 });
 
-test("runContributors shows one row per dev over the whole window", async () => {
-    const { repo, cfgDir, cfgFile } = buildFixture();
-    try {
-        const run = await resolveRun(cfgFile, {
-            since: "2026-06-01",
-            format: "md",
-        });
-        const markdown = await runContributors(run, cfgFile, NOW);
+test.skipIf(SCC_ON_PATH === null)(
+    "runContributors renders the dev-volume table and the complexity table",
+    async () => {
+        const { repo, cfgDir, cfgFile } = buildFixture();
+        try {
+            const run = await resolveRun(cfgFile, {
+                since: "2026-06-01",
+                format: "md",
+            });
+            const markdown = await runContributors(run, cfgFile, NOW);
 
-        expect(markdown).toContain("Author");
-        expect(markdown).toContain("(volume)");
-        expect(markdown).toContain("(signal)");
+            expect(markdown).toContain("Author");
+            expect(markdown).toContain("(volume)");
+            expect(markdown).toContain("(signal)");
+            expect(markdown).toContain("Complexity removed");
+            expect(markdown).toContain("Hotspot share");
+            expect(markdown).toContain("approximate");
 
-        const rows = tableRows(markdown);
-        expect(rows[0]?.[0]).toBe("Author");
+            const rows = tableRows(markdown);
+            expect(rows[0]?.[0]).toBe("Author");
 
-        const devOne = rows.find((cells) => cells[0] === "dev-one");
-        const devTwo = rows.find((cells) => cells[0] === "dev-two");
-        expect(devOne?.[1]).toBe("2");
-        expect(devTwo?.[1]).toBe("1");
-
-        const devRows = rows.filter(
-            (cells) => cells[0] === "dev-one" || cells[0] === "dev-two"
-        );
-        expect(devRows).toHaveLength(2);
-    } finally {
-        cleanup([repo, cfgDir]);
+            const devOne = rows.find((cells) => cells[0] === "dev-one");
+            const devTwo = rows.find((cells) => cells[0] === "dev-two");
+            expect(devOne?.[1]).toBe("2");
+            expect(devTwo?.[1]).toBe("1");
+        } finally {
+            cleanup([repo, cfgDir]);
+        }
     }
-});
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "runContributors baselines the pre-window month so first-month complexity is not credited as added",
+    async () => {
+        const repo = initRepo();
+        commitAt(
+            repo,
+            DEV_ONE,
+            "2026-05-15T10:00:00Z",
+            { "src/logic.ts": LOGIC_TS },
+            "feat: seed complex logic before the window"
+        );
+        commitAt(
+            repo,
+            DEV_TWO,
+            "2026-06-15T10:00:00Z",
+            { "src/logic.ts": `${LOGIC_TS}// bump june\n` },
+            "chore: neutral june edit"
+        );
+        commitAt(
+            repo,
+            DEV_TWO,
+            "2026-07-10T10:00:00Z",
+            { "src/logic.ts": `${LOGIC_TS}// bump june\n// bump july\n` },
+            "chore: neutral july edit"
+        );
+        const { cfgDir, cfgFile } = writeConfig(repo);
+        try {
+            const run = await resolveRun(cfgFile, {
+                since: "2026-06-01",
+                format: "json",
+            });
+            const json = await runContributors(run, cfgFile, NOW);
+
+            const handle = openCache({ configPath: cfgFile });
+            let juneComplexity: number;
+            try {
+                juneComplexity = boundaryComplexity(
+                    handle,
+                    "2026-06",
+                    "src/logic.ts"
+                );
+            } finally {
+                handle.sqlite.close();
+            }
+
+            expect(juneComplexity).toBeGreaterThan(0);
+            expect(complexityAddedFor(json, "dev-two")).toBeLessThan(
+                juneComplexity
+            );
+            expect(complexityAddedFor(json, "dev-two")).toBe(0);
+        } finally {
+            cleanup([repo, cfgDir]);
+        }
+    }
+);
 
 test.skipIf(SCC_ON_PATH === null)(
     "runSize records monthly snapshots and lists the months",

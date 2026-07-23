@@ -1,4 +1,5 @@
 import {
+    aggregateComplexityAttribution,
     aggregateHotspots,
     aggregateOwnership,
     aggregatePerDev,
@@ -12,11 +13,13 @@ import {
     churnPeriodTable,
     devTable,
     hotspotsTable,
+    renderContributorsReport,
     renderData,
     renderOwnershipReport,
     sizeTable,
 } from "../render";
 import {
+    ensureBaselineSnapshots,
     ensureExtracted,
     ensureMonthlySnapshots,
     ensureOwnership,
@@ -58,27 +61,41 @@ export async function runContributors(
     now: Date
 ): Promise<string> {
     await ensureExtracted(configPath, run.cache, now);
+    const config = await loadConfig({ configPath });
     const handle = openCache({ configPath });
     try {
+        await ensureMonthlySnapshots(handle.db, run);
+        await ensureOwnership(handle.db, run, config);
+        const windowEndShas = await ensureWindowEndSnapshot(handle.db, run);
+        const baselineShas = await ensureBaselineSnapshots(handle.db, run);
         const start = resolveWindowStart(handle.db, run);
-        const rows =
-            start === null
-                ? []
-                : aggregatePerDev(handle.db, {
-                      periods: [
-                          {
-                              label: run.window.label,
-                              start,
-                              end: run.window.end,
-                          },
-                      ],
-                      timezone: run.tz,
-                  });
-        return renderData(
-            run.format,
-            devTable(rows, { includePeriod: false }),
-            rows
-        );
+        if (start === null) {
+            return renderContributorsReport(run.format, {
+                contributors: [],
+                complexity: [],
+                unattributedComplexity: 0,
+            });
+        }
+        const contributors = aggregatePerDev(handle.db, {
+            periods: [{ label: run.window.label, start, end: run.window.end }],
+            timezone: run.tz,
+        });
+        const attribution = aggregateComplexityAttribution(handle.db, {
+            window: run.window,
+            windowStart: start,
+            repos: run.repos.map((repo) => repo.name),
+            timezone: run.tz,
+            minFileLines: config.hotspot.minFileLines,
+            busFactorThreshold: config.hotspot.busFactorThreshold,
+            windowEndShas,
+            baselineShas,
+            perDev: contributors,
+        });
+        return renderContributorsReport(run.format, {
+            contributors,
+            complexity: attribution.devs,
+            unattributedComplexity: attribution.unattributed,
+        });
     } finally {
         handle.sqlite.close();
     }

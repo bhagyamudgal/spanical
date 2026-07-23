@@ -177,6 +177,40 @@ export async function ensureWindowEndSnapshot(
     return shaByRepo;
 }
 
+export async function ensureBaselineSnapshots(
+    db: CacheDatabase,
+    run: ResolvedRun
+): Promise<Map<string, string>> {
+    const shaByRepo = new Map<string, string>();
+    const startDate = resolveWindowStart(db, run);
+    if (startDate === null) {
+        return shaByRepo;
+    }
+    const [firstMonth] = generatePeriods(
+        startDate,
+        run.window.end,
+        "month",
+        run.tz
+    );
+    if (firstMonth === undefined) {
+        return shaByRepo;
+    }
+    for (const repo of run.repos) {
+        const branch = await resolveDefaultBranch(repo.path, repo.branch);
+        const baselineSha = await resolveCommitBefore(
+            repo.path,
+            branch,
+            firstMonth.start
+        );
+        if (baselineSha === null) {
+            continue;
+        }
+        await ensureSnapshotAt(db, repo, baselineSha, run.tz);
+        shaByRepo.set(repo.name, baselineSha);
+    }
+    return shaByRepo;
+}
+
 async function blameRepoOwnership(
     db: CacheDatabase,
     resolver: AuthorResolver,

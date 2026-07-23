@@ -1,6 +1,7 @@
 import { PER_DEV_METRICS } from "../aggregate/metrics";
 import type {
     BusFactorRow,
+    DevComplexityRollup,
     DevPeriodRollup,
     HotspotRow,
     LanguageSize,
@@ -80,6 +81,55 @@ export function devTable(
             if (includePeriod) cells.period = row.period;
             return cells;
         }),
+    };
+}
+
+export function complexityTable(rows: DevComplexityRollup[]): TableModel {
+    return {
+        columns: [
+            { key: "author", label: "Author", align: "left" },
+            {
+                key: "complexityAdded",
+                label: "Complexity added",
+                align: "right",
+                flag: "context",
+            },
+            {
+                key: "complexityRemoved",
+                label: "Complexity removed",
+                align: "right",
+                flag: "signal",
+            },
+            {
+                key: "complexityNet",
+                label: "Complexity net",
+                align: "right",
+                flag: "context",
+            },
+            {
+                key: "complexityPerAddedLine",
+                label: "Complexity / added line",
+                align: "right",
+                flag: "context",
+            },
+            {
+                key: "hotspotShare",
+                label: "Hotspot share",
+                align: "right",
+                flag: "context",
+            },
+        ],
+        rows: rows.map((row) => ({
+            author: row.author,
+            complexityAdded: row.complexityAdded,
+            complexityRemoved: row.complexityRemoved,
+            complexityNet: row.complexityNet,
+            complexityPerAddedLine: row.complexityPerAddedLine,
+            hotspotShare:
+                row.hotspotContribution === null
+                    ? null
+                    : toPercent(row.hotspotContribution),
+        })),
     };
 }
 
