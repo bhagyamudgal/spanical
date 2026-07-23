@@ -9,6 +9,7 @@ export type {
     CodebaseSummary,
     DevPeriodRollup,
     FullAggregation,
+    HotspotRow,
     LanguageSize,
     MigrationChurn,
     OwnershipAggregation,
@@ -24,3 +25,4 @@ export { aggregateSizeTrend } from "./size";
 export { aggregateSummary } from "./summary";
 export { aggregateAll } from "./aggregate";
 export { aggregateOwnership } from "./ownership";
+export { aggregateHotspots } from "./hotspots";

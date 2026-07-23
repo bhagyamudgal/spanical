@@ -24,7 +24,7 @@ import { generatePeriods } from "../window";
 
 const OWNERSHIP_INSERT_BATCH_SIZE = 1000;
 const BLAME_CONCURRENCY = 16;
-const TIP_MONTH_FORMAT = "yyyy-MM";
+const SNAPSHOT_MONTH_FORMAT = "yyyy-MM";
 
 type OwnershipInsertRow = typeof fileOwnership.$inferInsert;
 type RepoRef = { name: string; path: string; branch?: string };
@@ -109,39 +109,72 @@ function tipSnapshotFiles(
         .map((row) => row.path);
 }
 
-async function tipCommitMonth(
+async function commitMonth(
     repoPath: string,
-    tipSha: string,
+    sha: string,
     timezone: string
 ): Promise<string> {
     const iso = (
-        await runGit(["show", "-s", "--format=%cI", tipSha], repoPath)
+        await runGit(["show", "-s", "--format=%cI", sha], repoPath)
     ).trim();
     return format(
         new TZDate(new Date(iso).getTime(), timezone),
-        TIP_MONTH_FORMAT
+        SNAPSHOT_MONTH_FORMAT
     );
 }
 
-async function ensureTipSnapshot(
+async function ensureSnapshotAt(
     db: CacheDatabase,
     repo: RepoRef,
-    tipSha: string,
+    sha: string,
     timezone: string
 ): Promise<void> {
     const existing = db
         .select({ sha: sccSnapshots.sha })
         .from(sccSnapshots)
-        .where(
-            and(eq(sccSnapshots.repo, repo.name), eq(sccSnapshots.sha, tipSha))
-        )
+        .where(and(eq(sccSnapshots.repo, repo.name), eq(sccSnapshots.sha, sha)))
         .get();
     if (existing) {
         return;
     }
     const sccBinary = await resolveSccBinary();
-    const month = await tipCommitMonth(repo.path, tipSha, timezone);
-    await snapshotSha(db, repo, month, tipSha, sccBinary);
+    const month = await commitMonth(repo.path, sha, timezone);
+    await snapshotSha(db, repo, month, sha, sccBinary);
+}
+
+async function resolveCommitBefore(
+    repoPath: string,
+    branch: string,
+    end: Date
+): Promise<string | null> {
+    const sha = (
+        await runGit(
+            ["rev-list", "-1", `--before=${end.toISOString()}`, branch],
+            repoPath
+        )
+    ).trim();
+    return sha.length === 0 ? null : sha;
+}
+
+export async function ensureWindowEndSnapshot(
+    db: CacheDatabase,
+    run: ResolvedRun
+): Promise<Map<string, string>> {
+    const shaByRepo = new Map<string, string>();
+    for (const repo of run.repos) {
+        const branch = await resolveDefaultBranch(repo.path, repo.branch);
+        const windowEndSha = await resolveCommitBefore(
+            repo.path,
+            branch,
+            run.window.end
+        );
+        if (windowEndSha === null) {
+            continue;
+        }
+        await ensureSnapshotAt(db, repo, windowEndSha, run.tz);
+        shaByRepo.set(repo.name, windowEndSha);
+    }
+    return shaByRepo;
 }
 
 async function blameRepoOwnership(
@@ -240,7 +273,7 @@ export async function ensureOwnership(
         if ((cached?.value ?? 0) > 0) {
             continue;
         }
-        await ensureTipSnapshot(db, repo, tipSha, run.tz);
+        await ensureSnapshotAt(db, repo, tipSha, run.tz);
         await blameRepoOwnership(
             db,
             resolver,

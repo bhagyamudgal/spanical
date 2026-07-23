@@ -77,6 +77,17 @@ export type BusFactorRow = {
     owners: string[];
 };
 
+export type HotspotRow = {
+    repo: string;
+    path: string;
+    changeFrequency: number;
+    complexity: number;
+    freqNorm: number;
+    cxNorm: number;
+    score: number;
+    ownerCount: number;
+};
+
 export type OwnershipAggregation = {
     files: OwnershipRow[];
     busFactor: BusFactorRow[];
