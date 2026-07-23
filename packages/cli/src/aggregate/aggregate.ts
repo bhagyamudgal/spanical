@@ -8,23 +8,34 @@ import type { FullAggregation, RepoAggregation } from "./types";
 
 function aggregateScope(
     db: CacheDatabase,
-    opts: { periods: Period[]; timezone: string; repo?: string }
+    opts: {
+        periods: Period[];
+        timezone: string;
+        repo?: string;
+        repos?: string[];
+    }
 ): RepoAggregation {
     return {
         summary: aggregateSummary(db, {
             periods: opts.periods,
             repo: opts.repo,
+            repos: opts.repos,
         }),
         perPeriod: aggregatePerPeriod(db, {
             periods: opts.periods,
             repo: opts.repo,
+            repos: opts.repos,
         }),
         perDev: aggregatePerDev(db, {
             periods: opts.periods,
             timezone: opts.timezone,
             repo: opts.repo,
+            repos: opts.repos,
         }),
-        sizeTrend: aggregateSizeTrend(db, { repo: opts.repo }),
+        sizeTrend: aggregateSizeTrend(db, {
+            repo: opts.repo,
+            repos: opts.repos,
+        }),
     };
 }
 
@@ -36,6 +47,7 @@ export function aggregateAll(
     const combined = aggregateScope(db, {
         periods,
         timezone: opts.timezone,
+        repos: opts.repos,
     });
     const perRepo = opts.repos.map((repo) => ({
         repo,

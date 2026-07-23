@@ -1,4 +1,4 @@
-import { and, countDistinct, eq, gte, lt } from "drizzle-orm";
+import { and, countDistinct, eq, gte, inArray, lt } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import { commitAuthors, commits } from "../cache/schema";
 import type { Period } from "../window/types";
@@ -20,7 +20,8 @@ function deriveWindowBounds(periods: Period[]): WindowBounds | null {
 function queryActiveDevCount(
     db: CacheDatabase,
     bounds: WindowBounds,
-    repo: string | undefined
+    repo: string | undefined,
+    repos: string[] | undefined
 ): number {
     const row = db
         .select({ devs: countDistinct(commitAuthors.authorId) })
@@ -30,7 +31,10 @@ function queryActiveDevCount(
             and(
                 gte(commits.authoredAt, bounds.start),
                 lt(commits.authoredAt, bounds.end),
-                repo ? eq(commits.repo, repo) : undefined
+                repo ? eq(commits.repo, repo) : undefined,
+                repos && repos.length > 0
+                    ? inArray(commits.repo, repos)
+                    : undefined
             )
         )
         .get();
@@ -49,13 +53,17 @@ function findBusiestPeriod(perPeriod: PeriodRollup[]): string | null {
 
 export function aggregateSummary(
     db: CacheDatabase,
-    opts: { periods: Period[]; repo?: string }
+    opts: { periods: Period[]; repo?: string; repos?: string[] }
 ): CodebaseSummary {
     const perPeriod = aggregatePerPeriod(db, {
         periods: opts.periods,
         repo: opts.repo,
+        repos: opts.repos,
     });
-    const sizeTrend = aggregateSizeTrend(db, { repo: opts.repo });
+    const sizeTrend = aggregateSizeTrend(db, {
+        repo: opts.repo,
+        repos: opts.repos,
+    });
 
     const commitCount = perPeriod.reduce(
         (total, row) => total + row.commits,
@@ -79,7 +87,7 @@ export function aggregateSummary(
     const activeDevs =
         windowBounds === null
             ? 0
-            : queryActiveDevCount(db, windowBounds, opts.repo);
+            : queryActiveDevCount(db, windowBounds, opts.repo, opts.repos);
 
     return {
         netGrowth,
