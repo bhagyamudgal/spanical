@@ -195,7 +195,8 @@ function buildFixtureRepo(): Fixture {
 async function aggregate(
     configDir: string,
     handle: Handle,
-    baselineShas: Map<string, string>
+    baselineShas: Map<string, string>,
+    since: string
 ): Promise<{
     devs: DevComplexityRollup[];
     unattributed: number;
@@ -203,7 +204,7 @@ async function aggregate(
     hotspotPaths: string[];
 }> {
     const run = await resolveRunConfig({
-        flags: { since: "2026-06-01" },
+        flags: { since },
         cwd: configDir,
         now: NOW,
     });
@@ -274,7 +275,8 @@ test("attributes monthly complexity deltas to devs by churn share", async () => 
             const result = await aggregate(
                 configDir,
                 handle,
-                new Map([[REPO_NAME, baselineSha]])
+                new Map([[REPO_NAME, baselineSha]]),
+                "2026-06-01"
             );
 
             expect(result.hotspotPaths).toEqual(["src/feature.ts"]);
@@ -303,6 +305,60 @@ test("attributes monthly complexity deltas to devs by churn share", async () => 
             expect(devOne.hotspotContribution ?? 1).toBeLessThan(1);
 
             expect(result.unattributed).toBe(10);
+        } finally {
+            handle.sqlite.close();
+        }
+    } finally {
+        cleanup([repo, configDir]);
+    }
+});
+
+function buildMidMonthFixture(): { repo: string; boundarySha: string } {
+    const repo = initRepo();
+    commit(
+        repo,
+        author(DEV_ONE),
+        { "src/feature.ts": lines(20) },
+        "feat: dev-one seeds feature pre-window",
+        "2026-06-10T10:00:00Z"
+    );
+    commit(
+        repo,
+        author(DEV_ONE),
+        { "src/feature.ts": lines(50) },
+        "feat: dev-one grows feature in-window",
+        "2026-06-20T10:00:00Z"
+    );
+    return { repo, boundarySha: headSha(repo) };
+}
+
+test("complexityPerAddedLine divides by month-aligned added lines for a mid-month start", async () => {
+    const { repo, boundarySha } = buildMidMonthFixture();
+    const configDir = writeConfig(fixtureConfig(repo));
+    try {
+        await extractAll({ cwd: configDir, noCache: true, now: NOW });
+        const handle = openCache({ cwd: configDir });
+        try {
+            seedBoundary(handle.db, boundarySha, "2026-06", [
+                { path: "src/feature.ts", code: 50, complexity: 60 },
+            ]);
+
+            const result = await aggregate(
+                configDir,
+                handle,
+                new Map(),
+                "2026-06-15"
+            );
+
+            const devOnePerDev = result.contributors.find(
+                (row) => row.author === "dev-one"
+            );
+            expect(devOnePerDev?.added).toBe(30);
+
+            const devOne = findDev(result.devs, "dev-one");
+            expect(devOne.complexityAdded).toBe(60);
+            expect(devOne.complexityPerAddedLine).toBeCloseTo(60 / 50, 10);
+            expect(devOne.complexityPerAddedLine).not.toBeCloseTo(60 / 30, 10);
         } finally {
             handle.sqlite.close();
         }

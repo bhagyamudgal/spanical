@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -317,5 +317,88 @@ test("returns an empty timeline when the window has no periods", async () => {
         expect(rows).toHaveLength(0);
     } finally {
         cleanup(fixture);
+    }
+});
+
+test("emits no removal event when the window median throughput is zero", async () => {
+    const fixture = seedFixture();
+    try {
+        const quietWindow: ResolvedWindow = {
+            start: P1.start,
+            end: monthPeriod(2025, 11, "2025-12").end,
+            granularity: "month",
+            periods: [
+                P1,
+                P2,
+                P3,
+                P4,
+                P5,
+                P6,
+                monthPeriod(2025, 6, "2025-07"),
+                monthPeriod(2025, 7, "2025-08"),
+                monthPeriod(2025, 8, "2025-09"),
+                monthPeriod(2025, 9, "2025-10"),
+                monthPeriod(2025, 10, "2025-11"),
+                monthPeriod(2025, 11, "2025-12"),
+            ],
+            label: "2025-quiet",
+        };
+        const rows = await aggregateTimeline(fixture.handle.db, {
+            window: quietWindow,
+            repos: [{ name: REPO, path: fixture.repoDir }],
+        });
+        const march = rows.find((row) => row.period === "2025-03");
+        expect(march?.net).toBe(-80);
+        expect(
+            (march?.events ?? []).some((event) => event.kind === "removal")
+        ).toBe(false);
+    } finally {
+        cleanup(fixture);
+    }
+});
+
+test("falls back to short SHAs and warns when a dominant commit's repo is unconfigured", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "spanical-timeline-cache-"));
+    const handle = openCache({ cwd: cacheDir });
+    const { db } = handle;
+    const sha = "c1c1c1c1c1c1deadbeefdeadbeefdeadbeefdead";
+
+    db.insert(authors)
+        .values([{ id: 1, canonicalName: "dev-one" }])
+        .run();
+    db.insert(commits)
+        .values([
+            {
+                sha,
+                repo: "stale-repo",
+                authorId: 1,
+                authoredAt: Date.UTC(2025, 1, 15),
+                isMerge: false,
+            },
+        ])
+        .run();
+    db.insert(fileChanges)
+        .values([fileChange(sha, 100, 0)])
+        .run();
+
+    const stderrSpy = spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+        const rows = await aggregateTimeline(db, {
+            window: WINDOW,
+            repos: [{ name: REPO, path: cacheDir }],
+        });
+        const dominant = dominantEvent(rows[1]?.events ?? []);
+        expect(dominant.subject).toBe(sha.slice(0, 7));
+
+        const warnings = stderrSpy.mock.calls
+            .map((call) => String(call[0]))
+            .filter((line) => line.startsWith("warning:"));
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toContain("1");
+        expect(warnings[0]).toContain("not configured");
+    } finally {
+        stderrSpy.mockRestore();
+        handle.sqlite.close();
+        rmSync(cacheDir, { recursive: true, force: true });
     }
 });
