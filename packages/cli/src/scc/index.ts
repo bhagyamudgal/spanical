@@ -7,6 +7,7 @@ export {
 export { runScc, type SccFileEntry } from "./run";
 export {
     snapshotRepo,
+    snapshotSha,
     type SnapshotBoundary,
     type SnapshotResult,
 } from "./snapshot";

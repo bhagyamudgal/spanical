@@ -1,14 +1,23 @@
 import {
+    aggregateOwnership,
     aggregatePerDev,
     aggregatePerPeriod,
     aggregateSizeTrend,
 } from "../aggregate";
 import { openCache } from "../cache/open";
 import type { ResolvedRun } from "../cli/resolve-run";
-import { churnPeriodTable, devTable, renderData, sizeTable } from "../render";
+import { loadConfig } from "../config/load";
+import {
+    churnPeriodTable,
+    devTable,
+    renderData,
+    renderOwnershipReport,
+    sizeTable,
+} from "../render";
 import {
     ensureExtracted,
     ensureMonthlySnapshots,
+    ensureOwnership,
     resolveWindowStart,
 } from "./prepare";
 
@@ -83,6 +92,29 @@ export async function runSize(
         await ensureMonthlySnapshots(handle.db, run);
         const rows = aggregateSizeTrend(handle.db, {});
         return renderData(run.format, sizeTable(rows), rows);
+    } finally {
+        handle.sqlite.close();
+    }
+}
+
+export async function runOwnership(
+    run: ResolvedRun,
+    configPath: string | undefined,
+    now: Date
+): Promise<string> {
+    const [config] = await Promise.all([
+        loadConfig({ configPath }),
+        ensureExtracted(configPath, run.cache, now),
+    ]);
+    const handle = openCache({ configPath });
+    try {
+        await ensureMonthlySnapshots(handle.db, run);
+        await ensureOwnership(handle.db, run, config);
+        const result = aggregateOwnership(handle.db, {
+            repos: run.repos.map((repo) => repo.name),
+            busFactorThreshold: config.hotspot.busFactorThreshold,
+        });
+        return renderOwnershipReport(run.format, result);
     } finally {
         handle.sqlite.close();
     }

@@ -5,11 +5,15 @@ export {
     type ReadFlag,
 } from "./metrics";
 export type {
+    BusFactorRow,
     CodebaseSummary,
     DevPeriodRollup,
     FullAggregation,
     LanguageSize,
     MigrationChurn,
+    OwnershipAggregation,
+    OwnershipAuthorShare,
+    OwnershipRow,
     PeriodRollup,
     RepoAggregation,
     SizeTrendPoint,
@@ -19,3 +23,4 @@ export { aggregatePerPeriod } from "./per-period";
 export { aggregateSizeTrend } from "./size";
 export { aggregateSummary } from "./summary";
 export { aggregateAll } from "./aggregate";
+export { aggregateOwnership } from "./ownership";

@@ -51,6 +51,16 @@ export async function snapshotRepo(
     return { repo: repo.name, snapshots };
 }
 
+export async function snapshotSha(
+    db: CacheDatabase,
+    repo: RepoRef,
+    month: string,
+    sha: string,
+    sccBinary: string
+): Promise<void> {
+    await snapshotCommit(db, repo, month, sha, sccBinary);
+}
+
 async function snapshotBoundary(
     db: CacheDatabase,
     repo: RepoRef,
