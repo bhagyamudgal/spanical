@@ -197,7 +197,7 @@ test("aggregateAll splits combined and per-repo scopes", () => {
     }
 });
 
-test("aggregateAll scopes the combined aggregation to the requested repos", () => {
+test("aggregateAll scopes the combined summary to the requested repos", () => {
     const { handle, dir } = seedMultiRepo();
     try {
         const { combined } = aggregateAll(handle.db, {
@@ -208,16 +208,58 @@ test("aggregateAll scopes the combined aggregation to the requested repos", () =
 
         expect(combined.summary.commits).toBe(4);
         expect(combined.summary.totalSizeNow).toBe(25);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateAll scopes the combined perPeriod rollup to the requested repos", () => {
+    const { handle, dir } = seedMultiRepo();
+    try {
+        const { combined } = aggregateAll(handle.db, {
+            window: WINDOW,
+            timezone: "UTC",
+            repos: ["web-app"],
+        });
 
         const secondPeriod = combined.perPeriod.find(
             (row) => row.period === "2025-07"
         );
         expect(secondPeriod?.commits).toBe(3);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateAll scopes the combined perDev rollup to the requested repos", () => {
+    const { handle, dir } = seedMultiRepo();
+    try {
+        const { combined } = aggregateAll(handle.db, {
+            window: WINDOW,
+            timezone: "UTC",
+            repos: ["web-app"],
+        });
 
         const devTwoSecond = combined.perDev.find(
             (row) => row.period === "2025-07" && row.author === "dev-two"
         );
         expect(devTwoSecond?.added).toBe(5.5);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateAll scopes the combined sizeTrend to the requested repos", () => {
+    const { handle, dir } = seedMultiRepo();
+    try {
+        const { combined } = aggregateAll(handle.db, {
+            window: WINDOW,
+            timezone: "UTC",
+            repos: ["web-app"],
+        });
 
         expect(combined.sizeTrend.at(-1)?.totalCode).toBe(25);
     } finally {

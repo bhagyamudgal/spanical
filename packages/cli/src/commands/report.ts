@@ -58,7 +58,7 @@ function computeContributors(
     db: CacheDatabase,
     run: ResolvedRun,
     start: Date | null,
-    repo?: string
+    repos: string[]
 ): DevPeriodRollup[] {
     if (start === null) {
         return [];
@@ -66,7 +66,7 @@ function computeContributors(
     return aggregatePerDev(db, {
         periods: [{ label: run.window.label, start, end: run.window.end }],
         timezone: run.tz,
-        repo,
+        repos,
     });
 }
 
@@ -114,7 +114,7 @@ export async function runReport(
             timezone: run.tz,
             repos: repoNames,
         });
-        const contributors = computeContributors(db, run, start);
+        const contributors = computeContributors(db, run, start, repoNames);
         const complexity = computeComplexity(db, {
             run,
             start,
@@ -147,12 +147,9 @@ export async function runReport(
         const perRepoInsights: PerRepoInsight[] = await Promise.all(
             full.perRepo.map(async ({ repo, aggregation }) => {
                 const repoPath = pathByRepo.get(repo);
-                const repoContributors = computeContributors(
-                    db,
-                    run,
-                    start,
-                    repo
-                );
+                const repoContributors = computeContributors(db, run, start, [
+                    repo,
+                ]);
                 return {
                     repo,
                     aggregation,

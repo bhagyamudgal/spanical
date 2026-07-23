@@ -7,6 +7,7 @@ import type { Period } from "../window/types";
 import type { DevPeriodRollup } from "./types";
 
 const DAY_FORMAT = "yyyy-MM-dd";
+const FILE_KEY_SEPARATOR = sql`char(10)`;
 
 type PeriodBounds = {
     start: number;
@@ -34,7 +35,9 @@ function queryChurnAndFiles(
             authorId: commitAuthors.authorId,
             added: sql<number>`coalesce(sum(${fileChanges.added} * ${commitAuthors.weight}), 0)`,
             deleted: sql<number>`coalesce(sum(${fileChanges.deleted} * ${commitAuthors.weight}), 0)`,
-            filesTouched: countDistinct(fileChanges.path),
+            filesTouched: countDistinct(
+                sql`${fileChanges.repo} || ${FILE_KEY_SEPARATOR} || ${fileChanges.path}`
+            ),
         })
         .from(commits)
         .innerJoin(commitAuthors, eq(commitAuthors.sha, commits.sha))

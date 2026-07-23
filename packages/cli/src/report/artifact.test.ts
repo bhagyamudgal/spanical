@@ -711,7 +711,7 @@ test("buildReportArtifact headline lists the top hotspots and a bus-factor warni
             "web-app/src/b.ts  churn 1 · cx 5 · owners 2"
         );
         expect(artifact).toContain(
-            "Bus-factor warnings: 1 files owned > 80% by a single dev in 1 dirs"
+            "Bus-factor warnings: 1 file owned > 80% by a single dev in 1 dir"
         );
     } finally {
         handle.sqlite.close();

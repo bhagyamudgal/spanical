@@ -37,7 +37,9 @@ function busFactorLine(
     const soleOwned = ownership.files.filter((file) => file.isSoleOwned).length;
     const dirs = ownership.busFactor.length;
     const percent = Math.round(busFactorThreshold * PERCENT_SCALE);
-    return `Bus-factor warnings: ${soleOwned} files owned > ${percent}% by a single dev in ${dirs} dirs`;
+    const fileWord = soleOwned === 1 ? "file" : "files";
+    const dirWord = dirs === 1 ? "dir" : "dirs";
+    return `Bus-factor warnings: ${soleOwned} ${fileWord} owned > ${percent}% by a single dev in ${dirs} ${dirWord}`;
 }
 
 export function formatHeadline(input: HeadlineInput): string {
