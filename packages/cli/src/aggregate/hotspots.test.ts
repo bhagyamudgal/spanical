@@ -136,6 +136,7 @@ function seedSnapshots(
                 code: file.code,
                 complexity: file.complexity,
                 sha,
+                isBoundary: false,
             }))
         )
         .run();

@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import { sccSnapshots } from "../cache/schema";
 import type { SizeTrendPoint } from "./types";
@@ -21,7 +21,12 @@ export function aggregateSizeTrend(
             complexity: sql<number>`coalesce(sum(${sccSnapshots.complexity}), 0)`,
         })
         .from(sccSnapshots)
-        .where(opts.repo ? eq(sccSnapshots.repo, opts.repo) : undefined)
+        .where(
+            and(
+                eq(sccSnapshots.isBoundary, true),
+                opts.repo ? eq(sccSnapshots.repo, opts.repo) : undefined
+            )
+        )
         .groupBy(sccSnapshots.month, sccSnapshots.language)
         .all();
 

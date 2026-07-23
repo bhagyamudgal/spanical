@@ -44,6 +44,7 @@ export const CREATE_TABLE_STATEMENTS = [
         code INTEGER NOT NULL,
         complexity INTEGER NOT NULL,
         sha TEXT NOT NULL,
+        is_boundary INTEGER NOT NULL,
         PRIMARY KEY (repo, sha, path)
     );`,
     `CREATE TABLE extractions (
