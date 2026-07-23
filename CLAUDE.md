@@ -218,3 +218,21 @@ Reuse hierarchy: use as-is → compose → extend → generalize → (last resor
 - Use `key` prop to reset component state, not `useEffect`
 - `useMemo` only for expensive computations; `useCallback` only when passing to memoized children
 - Next.js 16: `middleware.ts` is renamed `proxy.ts`
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (bhagyamudgal/spanical) via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` glossary + `docs/adr/` (created lazily by `/domain-modeling`). See `docs/agents/domain.md`.
+
+### Workflow
+
+The end-to-end process (design → spec → tickets → triage → plan gate → execute → verify → review) is documented in `docs/agent_workflow.md`.
