@@ -165,6 +165,7 @@ type ChurnIndex = {
     byFileMonth: Map<string, Map<number, number>>;
     totalByDev: Map<number, number>;
     hotspotByDev: Map<number, number>;
+    addedByDev: Map<number, number>;
 };
 
 function indexChurn(
@@ -175,6 +176,9 @@ function indexChurn(
     const byFileMonth = new Map<string, Map<number, number>>();
     const totalByDev = new Map<number, number>();
     const hotspotByDev = new Map<number, number>();
+    // Weighted added lines over the same month-aligned span as the attributed
+    // complexity, so complexityPerAddedLine's numerator and denominator match.
+    const addedByDev = new Map<number, number>();
 
     for (const row of rows) {
         const month = format(
@@ -182,10 +186,15 @@ function indexChurn(
             MONTH_FORMAT
         );
         const churn = ((row.added ?? 0) + (row.deleted ?? 0)) * row.weight;
+        const added = (row.added ?? 0) * row.weight;
 
         totalByDev.set(
             row.authorId,
             (totalByDev.get(row.authorId) ?? 0) + churn
+        );
+        addedByDev.set(
+            row.authorId,
+            (addedByDev.get(row.authorId) ?? 0) + added
         );
         if (hotspotFileKeys.has(fileKey(row.repo, row.path))) {
             hotspotByDev.set(
@@ -200,7 +209,7 @@ function indexChurn(
         byFileMonth.set(key, devMap);
     }
 
-    return { byFileMonth, totalByDev, hotspotByDev };
+    return { byFileMonth, totalByDev, hotspotByDev, addedByDev };
 }
 
 type Attribution = {
@@ -323,6 +332,7 @@ export function aggregateComplexityAttribution(
         const complexityRemoved = removedByDev.get(dev.authorId) ?? 0;
         const totalChurn = churn.totalByDev.get(dev.authorId) ?? 0;
         const hotspotChurn = churn.hotspotByDev.get(dev.authorId) ?? 0;
+        const addedLines = churn.addedByDev.get(dev.authorId) ?? 0;
         return {
             author: dev.author,
             authorId: dev.authorId,
@@ -330,7 +340,7 @@ export function aggregateComplexityAttribution(
             complexityRemoved,
             complexityNet: complexityAdded - complexityRemoved,
             complexityPerAddedLine:
-                dev.added === 0 ? null : complexityAdded / dev.added,
+                addedLines === 0 ? null : complexityAdded / addedLines,
             hotspotContribution:
                 totalChurn === 0 ? null : hotspotChurn / totalChurn,
         };
