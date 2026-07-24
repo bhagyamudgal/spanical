@@ -1,14 +1,20 @@
 import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
-import { and, countDistinct, eq, gte, lt, sql } from "drizzle-orm";
+import { and, countDistinct, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import { authors, commitAuthors, commits, fileChanges } from "../cache/schema";
 import type { Period } from "../window/types";
 import type { DevPeriodRollup } from "./types";
 
 const DAY_FORMAT = "yyyy-MM-dd";
+const FILE_KEY_SEPARATOR = sql`char(10)`;
 
-type PeriodBounds = { start: number; end: number; repo: string | undefined };
+type PeriodBounds = {
+    start: number;
+    end: number;
+    repo: string | undefined;
+    repos?: string[];
+};
 
 type ChurnEntry = { added: number; deleted: number; filesTouched: number };
 
@@ -29,7 +35,9 @@ function queryChurnAndFiles(
             authorId: commitAuthors.authorId,
             added: sql<number>`coalesce(sum(${fileChanges.added} * ${commitAuthors.weight}), 0)`,
             deleted: sql<number>`coalesce(sum(${fileChanges.deleted} * ${commitAuthors.weight}), 0)`,
-            filesTouched: countDistinct(fileChanges.path),
+            filesTouched: countDistinct(
+                sql`${fileChanges.repo} || ${FILE_KEY_SEPARATOR} || ${fileChanges.path}`
+            ),
         })
         .from(commits)
         .innerJoin(commitAuthors, eq(commitAuthors.sha, commits.sha))
@@ -40,7 +48,10 @@ function queryChurnAndFiles(
                 lt(commits.authoredAt, bounds.end),
                 eq(fileChanges.isBinary, false),
                 eq(fileChanges.isMigration, false),
-                bounds.repo ? eq(commits.repo, bounds.repo) : undefined
+                bounds.repo ? eq(commits.repo, bounds.repo) : undefined,
+                bounds.repos && bounds.repos.length > 0
+                    ? inArray(commits.repo, bounds.repos)
+                    : undefined
             )
         )
         .groupBy(commitAuthors.authorId)
@@ -72,7 +83,10 @@ function queryCommitCounts(
             and(
                 gte(commits.authoredAt, bounds.start),
                 lt(commits.authoredAt, bounds.end),
-                bounds.repo ? eq(commits.repo, bounds.repo) : undefined
+                bounds.repo ? eq(commits.repo, bounds.repo) : undefined,
+                bounds.repos && bounds.repos.length > 0
+                    ? inArray(commits.repo, bounds.repos)
+                    : undefined
             )
         )
         .groupBy(commitAuthors.authorId)
@@ -96,7 +110,10 @@ function queryActiveDays(
             and(
                 gte(commits.authoredAt, bounds.start),
                 lt(commits.authoredAt, bounds.end),
-                bounds.repo ? eq(commits.repo, bounds.repo) : undefined
+                bounds.repo ? eq(commits.repo, bounds.repo) : undefined,
+                bounds.repos && bounds.repos.length > 0
+                    ? inArray(commits.repo, bounds.repos)
+                    : undefined
             )
         )
         .all();
@@ -118,7 +135,12 @@ function queryActiveDays(
 
 export function aggregatePerDev(
     db: CacheDatabase,
-    opts: { periods: Period[]; timezone: string; repo?: string }
+    opts: {
+        periods: Period[];
+        timezone: string;
+        repo?: string;
+        repos?: string[];
+    }
 ): DevPeriodRollup[] {
     const nameById = loadAuthorNames(db);
     const rollups: DevPeriodRollup[] = [];
@@ -128,6 +150,7 @@ export function aggregatePerDev(
             start: period.start.getTime(),
             end: period.end.getTime(),
             repo: opts.repo,
+            repos: opts.repos,
         };
         const churn = queryChurnAndFiles(db, bounds);
         const commitCounts = queryCommitCounts(db, bounds);

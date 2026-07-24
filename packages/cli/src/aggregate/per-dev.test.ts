@@ -241,6 +241,75 @@ test("a period with no commits yields no rows", () => {
     }
 });
 
+test("aggregatePerDev repo-qualifies filesTouched across repos sharing a path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-aggregate-multi-"));
+    const handle = openCache({ cwd: dir });
+    const { db } = handle;
+    try {
+        db.insert(authors)
+            .values([{ id: 1, canonicalName: "dev-one" }])
+            .run();
+        db.insert(commits)
+            .values([
+                {
+                    sha: "w1",
+                    repo: "web-app",
+                    authorId: 1,
+                    authoredAt: Date.UTC(2025, 5, 10),
+                    isMerge: false,
+                },
+                {
+                    sha: "a1",
+                    repo: "api",
+                    authorId: 1,
+                    authoredAt: Date.UTC(2025, 5, 12),
+                    isMerge: false,
+                },
+            ])
+            .run();
+        db.insert(commitAuthors)
+            .values([
+                { sha: "w1", authorId: 1, weight: 1.0 },
+                { sha: "a1", authorId: 1, weight: 1.0 },
+            ])
+            .run();
+        db.insert(fileChanges)
+            .values([
+                {
+                    sha: "w1",
+                    repo: "web-app",
+                    path: "src/index.ts",
+                    added: 10,
+                    deleted: 0,
+                    isBinary: false,
+                    isMigration: false,
+                },
+                {
+                    sha: "a1",
+                    repo: "api",
+                    path: "src/index.ts",
+                    added: 5,
+                    deleted: 0,
+                    isBinary: false,
+                    isMigration: false,
+                },
+            ])
+            .run();
+
+        const rollups = aggregatePerDev(db, {
+            periods: [P1],
+            timezone: "UTC",
+            repos: ["web-app", "api"],
+        });
+
+        expect(rollups).toHaveLength(1);
+        expect(rollups[0]?.filesTouched).toBe(2);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test("PER_DEV_METRICS carries every metric key with its spec read flag", () => {
     const expectedFlags: [PerDevMetricKey, ReadFlag][] = [
         ["commits", "trap"],

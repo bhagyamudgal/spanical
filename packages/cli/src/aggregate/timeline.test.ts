@@ -357,7 +357,7 @@ test("emits no removal event when the window median throughput is zero", async (
     }
 });
 
-test("falls back to short SHAs and warns when a dominant commit's repo is unconfigured", async () => {
+test("falls back to short SHAs and warns when git cannot read a dominant commit's subject", async () => {
     const cacheDir = mkdtempSync(join(tmpdir(), "spanical-timeline-cache-"));
     const handle = openCache({ cwd: cacheDir });
     const { db } = handle;
@@ -370,7 +370,7 @@ test("falls back to short SHAs and warns when a dominant commit's repo is unconf
         .values([
             {
                 sha,
-                repo: "stale-repo",
+                repo: REPO,
                 authorId: 1,
                 authoredAt: Date.UTC(2025, 1, 15),
                 isMerge: false,
@@ -395,7 +395,7 @@ test("falls back to short SHAs and warns when a dominant commit's repo is unconf
             .filter((line) => line.startsWith("warning:"));
         expect(warnings).toHaveLength(1);
         expect(warnings[0]).toContain("1");
-        expect(warnings[0]).toContain("not configured");
+        expect(warnings[0]).toContain("git show may be failing");
     } finally {
         stderrSpy.mockRestore();
         handle.sqlite.close();

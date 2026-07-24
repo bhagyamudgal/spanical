@@ -1,5 +1,5 @@
 import { tryCatch } from "@spanical/utils";
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import { commitAuthors, commits, fileChanges } from "../cache/schema";
 import { runGit } from "../extract/git";
@@ -96,7 +96,8 @@ function busiestPeriodLabel(perPeriod: PeriodRollup[]): string | null {
 
 function queryCommitChurn(
     db: CacheDatabase,
-    bounds: WindowBounds
+    bounds: WindowBounds,
+    repoNames: string[]
 ): CommitChurnRow[] {
     return db
         .select({
@@ -112,6 +113,7 @@ function queryCommitChurn(
             and(
                 gte(commits.authoredAt, bounds.start),
                 lt(commits.authoredAt, bounds.end),
+                inArray(commits.repo, repoNames),
                 eq(fileChanges.isBinary, false),
                 eq(fileChanges.isMigration, false)
             )
@@ -122,7 +124,8 @@ function queryCommitChurn(
 
 function queryActiveDevRows(
     db: CacheDatabase,
-    bounds: WindowBounds
+    bounds: WindowBounds,
+    repoNames: string[]
 ): ActiveDevRow[] {
     return db
         .selectDistinct({
@@ -134,7 +137,8 @@ function queryActiveDevRows(
         .where(
             and(
                 gte(commits.authoredAt, bounds.start),
-                lt(commits.authoredAt, bounds.end)
+                lt(commits.authoredAt, bounds.end),
+                inArray(commits.repo, repoNames)
             )
         )
         .all();
@@ -200,9 +204,7 @@ function detectDominantCommits(
     return byPeriod;
 }
 
-type SubjectFallback = "none" | "unconfigured-repo" | "git-failed";
-
-type SubjectResult = { subject: string; fallback: SubjectFallback };
+type SubjectResult = { subject: string; failed: boolean };
 
 async function fetchSubject(
     dominant: DominantCommit,
@@ -210,35 +212,19 @@ async function fetchSubject(
 ): Promise<SubjectResult> {
     const repoPath = pathByRepo.get(dominant.repo);
     if (repoPath === undefined) {
-        return { subject: dominant.shortSha, fallback: "unconfigured-repo" };
+        return { subject: dominant.shortSha, failed: true };
     }
     const { data, error } = await tryCatch(
         runGit(["show", "-s", "--format=%s", dominant.sha], repoPath)
     );
     if (error !== null) {
-        return { subject: dominant.shortSha, fallback: "git-failed" };
+        return { subject: dominant.shortSha, failed: true };
     }
     const subject = data.trim();
     return {
         subject: subject.length > 0 ? subject : dominant.shortSha,
-        fallback: "none",
+        failed: false,
     };
-}
-
-function subjectFallbackWarning(
-    unconfiguredRepoCount: number,
-    gitFailedCount: number
-): string {
-    const causes: string[] = [];
-    if (unconfiguredRepoCount > 0) {
-        causes.push(
-            `${unconfiguredRepoCount} from a repo not configured in this run (config or cache may be stale)`
-        );
-    }
-    if (gitFailedCount > 0) {
-        causes.push(`${gitFailedCount} git could not read`);
-    }
-    return `warning: dominant-commit subject fetch fell back to short SHAs: ${causes.join("; ")}.\n`;
 }
 
 async function fetchDominantSubjects(
@@ -249,23 +235,18 @@ async function fetchDominantSubjects(
     const dominants = [...dominantByPeriod.values()].flat();
     const results = await Promise.all(
         dominants.map(async (dominant) => {
-            const { subject, fallback } = await fetchSubject(
+            const { subject, failed } = await fetchSubject(
                 dominant,
                 pathByRepo
             );
-            return { sha: dominant.sha, subject, fallback };
+            return { sha: dominant.sha, subject, failed };
         })
     );
 
-    const unconfiguredRepoCount = results.filter(
-        (result) => result.fallback === "unconfigured-repo"
-    ).length;
-    const gitFailedCount = results.filter(
-        (result) => result.fallback === "git-failed"
-    ).length;
-    if (unconfiguredRepoCount > 0 || gitFailedCount > 0) {
+    const failedCount = results.filter((result) => result.failed).length;
+    if (failedCount > 0) {
         process.stderr.write(
-            subjectFallbackWarning(unconfiguredRepoCount, gitFailedCount)
+            `warning: dominant-commit subject fetch fell back to short SHAs for ${failedCount} of ${results.length} commit(s); git show may be failing.\n`
         );
     }
 
@@ -340,17 +321,18 @@ export async function aggregateTimeline(
         return [];
     }
 
-    const perPeriod = aggregatePerPeriod(db, { periods });
+    const repoNames = opts.repos.map((repo) => repo.name);
+    const perPeriod = aggregatePerPeriod(db, { periods, repos: repoNames });
     const median = medianThroughput(perPeriod);
     const busiest = busiestPeriodLabel(perPeriod);
     const bounds = windowBounds(periods);
 
     const activeDevsByPeriod = countActiveDevsByPeriod(
-        queryActiveDevRows(db, bounds),
+        queryActiveDevRows(db, bounds, repoNames),
         periods
     );
     const dominantByPeriod = detectDominantCommits(
-        queryCommitChurn(db, bounds),
+        queryCommitChurn(db, bounds, repoNames),
         perPeriod,
         periods
     );

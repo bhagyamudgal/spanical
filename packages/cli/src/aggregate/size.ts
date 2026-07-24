@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import { sccSnapshots } from "../cache/schema";
 import type { SizeTrendPoint } from "./types";
@@ -11,7 +11,7 @@ type MonthAccumulator = {
 
 export function aggregateSizeTrend(
     db: CacheDatabase,
-    opts: { repo?: string }
+    opts: { repo?: string; repos?: string[] }
 ): SizeTrendPoint[] {
     const rows = db
         .select({
@@ -24,7 +24,10 @@ export function aggregateSizeTrend(
         .where(
             and(
                 eq(sccSnapshots.isBoundary, true),
-                opts.repo ? eq(sccSnapshots.repo, opts.repo) : undefined
+                opts.repo ? eq(sccSnapshots.repo, opts.repo) : undefined,
+                opts.repos && opts.repos.length > 0
+                    ? inArray(sccSnapshots.repo, opts.repos)
+                    : undefined
             )
         )
         .groupBy(sccSnapshots.month, sccSnapshots.language)

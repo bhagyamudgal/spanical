@@ -3,7 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCache } from "../cache/open";
-import { authors, commitAuthors, commits, fileChanges } from "../cache/schema";
+import {
+    authors,
+    commitAuthors,
+    commits,
+    fileChanges,
+    sccSnapshots,
+} from "../cache/schema";
 import type { Period, ResolvedWindow } from "../window/types";
 import { aggregateAll } from "./aggregate";
 
@@ -142,6 +148,31 @@ function seedMultiRepo(): {
         ])
         .run();
 
+    db.insert(sccSnapshots)
+        .values([
+            {
+                repo: "web-app",
+                month: "2025-07",
+                path: "src/a.ts",
+                language: "TypeScript",
+                code: 25,
+                complexity: 4,
+                sha: "c2",
+                isBoundary: true,
+            },
+            {
+                repo: "api",
+                month: "2025-07",
+                path: "api/x.ts",
+                language: "TypeScript",
+                code: 100,
+                complexity: 10,
+                sha: "c5",
+                isBoundary: true,
+            },
+        ])
+        .run();
+
     return { handle, dir };
 }
 
@@ -160,6 +191,77 @@ test("aggregateAll splits combined and per-repo scopes", () => {
         const api = full.perRepo.find((entry) => entry.repo === "api");
         expect(webApp?.aggregation.summary.commits).toBe(4);
         expect(api?.aggregation.summary.commits).toBe(1);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateAll scopes the combined summary to the requested repos", () => {
+    const { handle, dir } = seedMultiRepo();
+    try {
+        const { combined } = aggregateAll(handle.db, {
+            window: WINDOW,
+            timezone: "UTC",
+            repos: ["web-app"],
+        });
+
+        expect(combined.summary.commits).toBe(4);
+        expect(combined.summary.totalSizeNow).toBe(25);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateAll scopes the combined perPeriod rollup to the requested repos", () => {
+    const { handle, dir } = seedMultiRepo();
+    try {
+        const { combined } = aggregateAll(handle.db, {
+            window: WINDOW,
+            timezone: "UTC",
+            repos: ["web-app"],
+        });
+
+        const secondPeriod = combined.perPeriod.find(
+            (row) => row.period === "2025-07"
+        );
+        expect(secondPeriod?.commits).toBe(3);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateAll scopes the combined perDev rollup to the requested repos", () => {
+    const { handle, dir } = seedMultiRepo();
+    try {
+        const { combined } = aggregateAll(handle.db, {
+            window: WINDOW,
+            timezone: "UTC",
+            repos: ["web-app"],
+        });
+
+        const devTwoSecond = combined.perDev.find(
+            (row) => row.period === "2025-07" && row.author === "dev-two"
+        );
+        expect(devTwoSecond?.added).toBe(5.5);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateAll scopes the combined sizeTrend to the requested repos", () => {
+    const { handle, dir } = seedMultiRepo();
+    try {
+        const { combined } = aggregateAll(handle.db, {
+            window: WINDOW,
+            timezone: "UTC",
+            repos: ["web-app"],
+        });
+
+        expect(combined.sizeTrend.at(-1)?.totalCode).toBe(25);
     } finally {
         handle.sqlite.close();
         rmSync(dir, { recursive: true, force: true });
