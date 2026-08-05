@@ -88,6 +88,17 @@ test("--repo rejects paths that collapse to duplicate basenames", async () => {
     }
 });
 
+test("--repo rejects a path with no final segment to name it by", async () => {
+    const dir = writeFixture();
+    try {
+        await expect(
+            resolveRunConfig({ flags: { repo: "/" }, cwd: dir, now: NOW })
+        ).rejects.toThrow(WindowError);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test("--exclude replaces the config exclude list", async () => {
     const dir = writeFixture();
     try {

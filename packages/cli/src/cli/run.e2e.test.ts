@@ -16,6 +16,7 @@ const INDEX_PATH = join(import.meta.dir, "..", "index.ts");
 const PUBLIC_IMPORT = `${import.meta.dir}/../public`;
 const SCC_ON_PATH = Bun.which("scc");
 const REPORT_FILE_PATTERN = /^spanical-report-.*\.md$/;
+const OUTSIDE_GIT_REPOSITORY_MARKER = "not inside a git repository";
 
 const DEV_ONE = { name: "dev-one", email: "dev-one@example.com" };
 const DEV_ONE_ALT = { name: "dev-one-alt", email: "dev-one-alt@example.com" };
@@ -88,6 +89,20 @@ function distinctAuthors(result: CliResult): string[] {
     return [...new Set(rows.map((row) => row.author))].sort();
 }
 
+// A config-less run always writes its "default settings" note to stderr, so only
+// a failing run reports stderr — a passing one would drown in the note, and a
+// blanked stderr would hide the diagnostic for an unrelated failure.
+function expectRepoFlagRun(subcommand: string, result: CliResult): void {
+    const hasFailed =
+        result.exitCode !== 0 ||
+        result.stderr.includes(OUTSIDE_GIT_REPOSITORY_MARKER);
+    expect({
+        subcommand,
+        exitCode: result.exitCode,
+        stderr: hasFailed ? result.stderr : "",
+    }).toEqual({ subcommand, exitCode: 0, stderr: "" });
+}
+
 function cleanup(dirs: string[]): void {
     for (const dir of dirs) {
         rmSync(dir, { recursive: true, force: true });
@@ -146,8 +161,31 @@ test("a config at the repo root is used from a subdirectory", () => {
     }
 });
 
+test("--repo works from a directory that is not a git repository", () => {
+    const repo = initRepo();
+    const elsewhere = mkdtempSync(join(tmpdir(), "spanical-run-plain-"));
+    try {
+        commit(repo, DEV_ONE, { "a.ts": "1\n" }, "feat: a");
+
+        const result = runCli(elsewhere, [
+            "churn",
+            "--repo",
+            repo,
+            "--by",
+            "dev",
+            "--format",
+            "json",
+        ]);
+
+        expectRepoFlagRun("churn", result);
+        expect(distinctAuthors(result)).toEqual([DEV_ONE.email]);
+    } finally {
+        cleanup([repo, elsewhere]);
+    }
+});
+
 test.skipIf(SCC_ON_PATH === null)(
-    "--repo works from a directory that is not a git repository",
+    "--repo works from a directory that is not a git repository for scc-backed subcommands",
     () => {
         const repo = initRepo();
         const elsewhere = mkdtempSync(join(tmpdir(), "spanical-run-plain-"));
@@ -165,16 +203,10 @@ test.skipIf(SCC_ON_PATH === null)(
                 "hotspots",
                 "report",
             ]) {
-                const result = runCli(elsewhere, [subcommand, "--repo", repo]);
-                expect({
+                expectRepoFlagRun(
                     subcommand,
-                    exitCode: result.exitCode,
-                    stderr: result.stderr.includes(
-                        "not inside a git repository"
-                    )
-                        ? result.stderr
-                        : "",
-                }).toEqual({ subcommand, exitCode: 0, stderr: "" });
+                    runCli(elsewhere, [subcommand, "--repo", repo])
+                );
             }
         } finally {
             cleanup([repo, elsewhere]);

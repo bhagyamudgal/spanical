@@ -39,6 +39,17 @@ function parseRepoFlag(value: string, cwd: string): ResolvedRun["repos"] {
         path,
     }));
 
+    // A config file's repos go through zod, which rejects an empty name; --repo
+    // has to reject it here or the same path would be valid with a config file
+    // present and invalid without one.
+    const unnameable = repos.filter((repo) => repo.name.length === 0);
+    if (unnameable.length > 0) {
+        throw new WindowError(
+            WINDOW_ERROR_CODES.UNNAMEABLE_REPO_PATH,
+            `Cannot derive a repo name from: ${unnameable.map((repo) => repo.path).join(", ")}. Each --repo path must end in a directory name.`
+        );
+    }
+
     const repoNames = repos.map((repo) => repo.name);
     if (new Set(repoNames).size !== repoNames.length) {
         const duplicates = [

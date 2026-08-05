@@ -36,20 +36,30 @@ function dedupeIds(ids: number[]): number[] {
     return [...new Set(ids)];
 }
 
-// Every config field that is baked into the cached rows: the author mapping the
-// commits are attributed through, plus the globs that decide which file changes
-// are stored and which are flagged as migrations.
+// Code unit order, not localeCompare: the sort feeds a digest that has to be
+// identical across machines, and collation is locale- and ICU-version dependent.
+function compareCodeUnits(left: string, right: string): number {
+    if (left === right) {
+        return 0;
+    }
+    return left < right ? -1 : 1;
+}
+
+// Every config field that is baked into the cached rows: the whole author entry
+// the commits are attributed through, plus the globs that decide which file
+// changes are stored and which are flagged as migrations.
 function configFingerprint(config: SpanicalConfig): string {
     const fingerprint = {
         authors: Object.entries(config.authors)
             .map(([canonicalName, author]) => ({
                 canonicalName,
-                emails: [...author.emails].sort(),
+                emails: [...author.emails].sort(compareCodeUnits),
+                github: [...(author.github ?? [])].sort(compareCodeUnits),
             }))
             .sort((left, right) =>
-                left.canonicalName.localeCompare(right.canonicalName)
+                compareCodeUnits(left.canonicalName, right.canonicalName)
             ),
-        exclude: [...config.exclude].sort(),
+        exclude: [...config.exclude].sort(compareCodeUnits),
         migrationsPath: config.migrationsPath,
     };
     return new Bun.CryptoHasher("sha256")

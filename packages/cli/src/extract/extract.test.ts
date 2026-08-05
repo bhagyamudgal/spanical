@@ -119,6 +119,14 @@ function cleanup(dirs: string[]): void {
     }
 }
 
+function restoreEnv(key: string, value: string | undefined): void {
+    if (value === undefined) {
+        delete process.env[key];
+        return;
+    }
+    process.env[key] = value;
+}
+
 test("stores rename destinations and marks binary files with null counts", async () => {
     const repo = initRepo("main");
     const cfg = writeConfig({ repos: [{ name: "web-app", path: repo }] });
@@ -450,6 +458,54 @@ test("a changed authors mapping re-extracts a repo whose tip has not moved", asy
     }
 });
 
+test("a changed authors github list re-extracts a repo whose tip has not moved", async () => {
+    const repo = initRepo("main");
+    const cacheDir = mkdtempSync(join(tmpdir(), "spanical-cache-"));
+    const repoConfig = { name: "web-app", path: repo };
+    const before = parseConfig({
+        repos: [repoConfig],
+        authors: { "dev-one": { emails: [DEV_ONE.email] } },
+    });
+    const after = parseConfig({
+        repos: [repoConfig],
+        authors: {
+            "dev-one": { emails: [DEV_ONE.email], github: ["dev-one"] },
+        },
+    });
+    try {
+        commit(repo, {
+            message: "feat: a",
+            author: DEV_ONE,
+            files: { "a.ts": "1\n" },
+        });
+
+        const handle = openCache({ cwd: cacheDir });
+        try {
+            const first = await extractRepo(
+                handle.db,
+                seedAndResolveAuthors(handle.db, before),
+                repoConfig,
+                before,
+                { noCache: false, now: NOW }
+            );
+            expect(first.status).toBe("extracted");
+
+            const second = await extractRepo(
+                handle.db,
+                seedAndResolveAuthors(handle.db, after),
+                repoConfig,
+                after,
+                { noCache: false, now: NOW }
+            );
+            expect(second.status).toBe("extracted");
+        } finally {
+            handle.sqlite.close();
+        }
+    } finally {
+        cleanup([repo, cacheDir]);
+    }
+});
+
 test("a changed exclude list re-extracts a repo whose tip has not moved", async () => {
     const repo = initRepo("main");
     const cacheDir = mkdtempSync(join(tmpdir(), "spanical-cache-"));
@@ -530,19 +586,43 @@ test("runGit reports the exit code and stderr, and resolveGitRoot maps only that
 });
 
 test("resolveGitRoot rethrows a git failure that is not an absent repository", async () => {
-    const repo = initRepo("main");
+    const dir = mkdtempSync(join(tmpdir(), "spanical-broken-"));
     try {
-        commit(repo, {
-            message: "feat: a",
-            author: DEV_ONE,
-            files: { "a.ts": "1\n" },
-        });
-        const { error } = await tryCatch(
-            resolveGitRoot(join(repo, "does-not-exist"))
-        );
-        expect(error).not.toBeNull();
+        // A malformed gitfile makes git fail with the same exit code as an absent
+        // repository but a different message, which is the rethrow branch.
+        writeFileSync(join(dir, ".git"), "not-a-gitfile\n");
+        const { error } = await tryCatch(resolveGitRoot(dir));
+        expect(error).toBeInstanceOf(ExtractError);
+        if (error instanceof ExtractError) {
+            expect(error.code).toBe(EXTRACT_ERROR_CODES.GIT_COMMAND_FAILED);
+            expect(error.exitCode).toBe(128);
+            expect(error.stderr).toContain("invalid gitfile format");
+        }
     } finally {
-        cleanup([repo]);
+        cleanup([dir]);
+    }
+});
+
+test("runGit runs git under a fixed locale so stderr markers stay in English", async () => {
+    const binDir = mkdtempSync(join(tmpdir(), "spanical-fake-git-"));
+    const originalPath = process.env.PATH;
+    const originalLocale = process.env.LC_ALL;
+    try {
+        writeFileSync(
+            join(binDir, "git"),
+            '#!/bin/sh\nprintf "%s" "$LC_ALL"\n',
+            {
+                mode: 0o755,
+            }
+        );
+        process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+        process.env.LC_ALL = "de_DE.UTF-8";
+
+        expect(await runGit(["--version"], binDir)).toBe("C");
+    } finally {
+        restoreEnv("PATH", originalPath);
+        restoreEnv("LC_ALL", originalLocale);
+        cleanup([binDir]);
     }
 });
 

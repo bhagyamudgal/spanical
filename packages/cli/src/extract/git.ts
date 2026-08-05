@@ -9,6 +9,12 @@ const SHALLOW_MARKER = "shallow";
 const NOT_A_REPOSITORY_EXIT_CODE = 128;
 const NOT_A_REPOSITORY_MARKER = "not a git repository";
 
+// git translates its own messages, so the stderr markers below only match when
+// the child is pinned to the C locale regardless of the user's environment.
+function gitEnvironment(): typeof process.env {
+    return { ...process.env, LC_ALL: "C" };
+}
+
 export function assertGitAvailable(): void {
     if (!Bun.which("git")) {
         throw new ExtractError(
@@ -23,6 +29,7 @@ export async function runGit(args: string[], cwd: string): Promise<string> {
         cwd,
         stdout: "pipe",
         stderr: "pipe",
+        env: gitEnvironment(),
     });
     const [stdout, stderr, exitCode] = await Promise.all([
         new Response(proc.stdout).text(),
@@ -133,6 +140,7 @@ export async function* streamGitLog(
         cwd,
         stdout: "pipe",
         stderr: "pipe",
+        env: gitEnvironment(),
     });
 
     const decoder = new TextDecoder();
