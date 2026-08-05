@@ -6,6 +6,8 @@ import { GITHUB_ERROR_CODES, GitHubError } from "./errors";
 const GITHUB_HOST = "github.com";
 const SCHEME_SEPARATOR = "://";
 const SCP_LIKE_REMOTE = /^(?:[^@/]+@)?([^:/]+):(.+)$/;
+const URL_USERINFO = /:\/\/[^/@]*@/;
+const REDACTED_USERINFO = "://***@";
 const GIT_SUFFIX = ".git";
 const SLUG_SEGMENT_COUNT = 2;
 const NO_SUCH_REMOTE_EXIT_CODE = 2;
@@ -18,16 +20,25 @@ export function formatSlug(slug: RepoSlug): string {
     return `${slug.owner}/${slug.name}`;
 }
 
+// A malformed percent-escape has to read as an invalid slug rather than throw a
+// bare URIError out of config validation, and decoding only after the split
+// keeps an escaped separator from inventing a segment.
+function decodeSegment(segment: string): string | null {
+    return tryCatchSync(() => decodeURIComponent(segment)).data;
+}
+
 export function parseSlugPath(path: string): RepoSlug | null {
-    const segments = path
-        .split("/")
-        .filter((segment) => segment.length > 0)
-        .map((segment) => decodeURIComponent(segment));
+    const segments = path.split("/").filter((segment) => segment.length > 0);
     if (segments.length !== SLUG_SEGMENT_COUNT) {
         return null;
     }
-    const [owner, lastSegment] = segments;
-    if (owner === undefined || lastSegment === undefined) {
+    const [rawOwner, rawName] = segments;
+    if (rawOwner === undefined || rawName === undefined) {
+        return null;
+    }
+    const owner = decodeSegment(rawOwner);
+    const lastSegment = decodeSegment(rawName);
+    if (owner === null || lastSegment === null) {
         return null;
     }
     const name = lastSegment.endsWith(GIT_SUFFIX)
@@ -50,7 +61,9 @@ export function parseGitHubRemote(remoteUrl: string): RepoSlug | null {
     const scpMatch = SCP_LIKE_REMOTE.exec(trimmed);
     const host = scpMatch?.[1];
     const path = scpMatch?.[2];
-    if (host !== GITHUB_HOST || path === undefined) {
+    // Only the host folds: hostnames are case-insensitive and git preserves
+    // whatever was typed, while owner and name travel on as GraphQL variables.
+    if (host?.toLowerCase() !== GITHUB_HOST || path === undefined) {
         return null;
     }
     return parseSlugPath(path);
@@ -87,9 +100,13 @@ export async function resolveRepoSlug(repo: RepoRef): Promise<RepoSlug> {
 
     const slug = parseGitHubRemote(remoteUrl);
     if (slug === null) {
+        // The message exists to show which host was found, so the host and path
+        // stay; a https://user:token@host remote would otherwise put its
+        // credential on stderr, where CI captures it.
+        const shown = remoteUrl.trim().replace(URL_USERINFO, REDACTED_USERINFO);
         throw new GitHubError(
             GITHUB_ERROR_CODES.ORIGIN_NOT_GITHUB,
-            `Repo "${repo.name}" has an origin remote (${remoteUrl.trim()}) that is not a ${GITHUB_HOST} repository. Set github: "owner/name" on that repo entry in spanical.config.ts.`
+            `Repo "${repo.name}" has an origin remote (${shown}) that is not a ${GITHUB_HOST} repository. Set github: "owner/name" on that repo entry in spanical.config.ts.`
         );
     }
     return slug;

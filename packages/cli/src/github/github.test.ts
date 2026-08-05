@@ -80,6 +80,23 @@ test("parseGitHubRemote reads the slug from the SSH and HTTPS remote forms", () 
     });
 });
 
+test("parseGitHubRemote accepts a mixed-case host in either remote form", () => {
+    // git preserves whatever was typed and hostnames are case-insensitive, so
+    // rejecting this would send the user hunting for a config workaround.
+    expect(parseGitHubRemote("git@GitHub.com:acme/web.git")).toEqual({
+        owner: "acme",
+        name: "web",
+    });
+    expect(parseGitHubRemote("https://GitHub.com/acme/web.git")).toEqual({
+        owner: "acme",
+        name: "web",
+    });
+});
+
+test("parseGitHubRemote returns null for a malformed percent-escape", () => {
+    expect(parseGitHubRemote("https://github.com/acme/we%b")).toBeNull();
+});
+
 test("parseGitHubRemote returns null for remotes that are not github.com", () => {
     expect(parseGitHubRemote("git@gitlab.com:acme/web.git")).toBeNull();
     expect(parseGitHubRemote("https://example.com/acme/web.git")).toBeNull();
@@ -115,6 +132,28 @@ test("resolveRepoSlug fails clearly when origin is not a GitHub host", async () 
             expect(error.code).toBe(GITHUB_ERROR_CODES.ORIGIN_NOT_GITHUB);
             expect(error.message).toContain("gitlab.com");
         }
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+    }
+});
+
+test("the non-GitHub origin message keeps the host but not the credential", async () => {
+    const repo = initRepo();
+    try {
+        git(repo, [
+            "remote",
+            "add",
+            "origin",
+            "https://ci-user:s3cret@gitlab.com/acme/web.git",
+        ]);
+        const { error } = await tryCatch(
+            resolveRepoSlug({ name: "web-app", path: repo })
+        );
+        expect(error).toBeInstanceOf(GitHubError);
+        // stderr is captured by CI, so a token embedded in a remote must not
+        // travel with the host the message exists to show.
+        expect(error?.message).toContain("gitlab.com/acme/web.git");
+        expect(error?.message).not.toContain("s3cret");
     } finally {
         rmSync(repo, { recursive: true, force: true });
     }
@@ -362,6 +401,14 @@ test("a repointed slug invalidates both watermarks and flags the repoint", () =>
     expect(
         resolveFetchFloors(cursorAt({ slug: "acme/old" }), SLUG, UTC)
     ).toEqual({ pullRequests: 0, issues: 0, isRepointed: true });
+});
+
+test("a slug that only changes case is not a repoint", () => {
+    // GitHub owners and names are case-insensitive, so re-casing one in config
+    // must not purge the cache and re-pay a rate-limited backfill.
+    expect(
+        resolveFetchFloors(cursorAt({ slug: "Acme/Web" }), SLUG, UTC)
+    ).toEqual({ pullRequests: 5_000, issues: 5_000, isRepointed: false });
 });
 
 test("the since floor is the configured timezone's midnight, not UTC's", () => {

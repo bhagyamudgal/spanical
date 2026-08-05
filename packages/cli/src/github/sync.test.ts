@@ -552,6 +552,69 @@ test("turning includeIssues off drops the issue rows it stops refreshing", async
     });
 });
 
+test("a run that fails after the issue purge leaves a watermark the next run can backfill from", async () => {
+    await withCache(async (handle) => {
+        const withIssues = cannedTransport({
+            pullRequests: [pullRequestPage([])],
+            issues: [
+                issuePage([
+                    ticketFields({
+                        id: "issue-1",
+                        number: 7,
+                        updatedAt: "2026-07-18T10:00:00Z",
+                        author: HUMAN,
+                    }),
+                ]),
+            ],
+        });
+        await runSync(
+            handle,
+            buildConfig(true),
+            withIssues.transport,
+            FIRST_RUN
+        );
+
+        const failing: GraphQLTransport = () =>
+            Promise.reject(new Error("connection reset by peer"));
+        const { error } = await tryCatch(
+            runSync(handle, buildConfig(false), failing, SECOND_RUN)
+        );
+        expect(error).not.toBeNull();
+
+        expect(handle.db.select().from(tickets).all()).toEqual([]);
+        // The purge dropped the rows, so the watermark they backed has to fall
+        // with them or the next run resumes past issues that no longer exist.
+        expect(
+            handle.db
+                .select()
+                .from(githubSyncs)
+                .where(eq(githubSyncs.repo, REPO_NAME))
+                .get()?.issuesSyncedThrough
+        ).toBe(0);
+
+        const recovered = cannedTransport({
+            pullRequests: [pullRequestPage([])],
+            issues: [
+                issuePage([
+                    ticketFields({
+                        id: "issue-1",
+                        number: 7,
+                        updatedAt: "2026-07-18T10:00:00Z",
+                        author: HUMAN,
+                    }),
+                ]),
+            ],
+        });
+        const result = await runSync(
+            handle,
+            buildConfig(true),
+            recovered.transport,
+            SECOND_RUN
+        );
+        expect(result.repos[0]?.ticketCount).toBe(1);
+    });
+});
+
 test("--no-cache re-walks from the since bound instead of the watermark", async () => {
     await withCache(async (handle) => {
         const first = cannedTransport({
@@ -656,6 +719,66 @@ test("repointing a repo at another slug purges its rows and re-backfills", async
                 .where(eq(githubSyncs.repo, REPO_NAME))
                 .get()?.slug
         ).toBe("acme/web-fork");
+    });
+});
+
+test("--no-cache still detects a repoint and purges the old repository's rows", async () => {
+    await withCache(async (handle) => {
+        const first = cannedTransport({
+            pullRequests: [
+                pullRequestPage([
+                    pullRequestNode({
+                        id: "old-pr",
+                        number: 1,
+                        updatedAt: "2026-07-18T10:00:00Z",
+                        author: HUMAN,
+                        reviews: [
+                            {
+                                id: "old-review",
+                                state: "APPROVED",
+                                submittedAt: "2026-07-18T09:00:00Z",
+                                author: REVIEWER,
+                            },
+                        ],
+                    }),
+                ]),
+            ],
+        });
+        await runSync(handle, buildConfig(), first.transport, FIRST_RUN);
+
+        const repointed = parseConfig({
+            repos: [
+                { name: REPO_NAME, path: "/unused", github: "acme/web-fork" },
+            ],
+            tickets: {
+                source: "github",
+                github: { token: "env:GITHUB_TOKEN", includeIssues: false },
+            },
+        });
+        const second = cannedTransport({
+            pullRequests: [
+                pullRequestPage([
+                    pullRequestNode({
+                        id: "new-pr",
+                        number: 1,
+                        updatedAt: "2026-07-25T10:00:00Z",
+                        author: HUMAN,
+                    }),
+                ]),
+            ],
+        });
+        // --no-cache drops the watermark, not the slug: the run still writes the
+        // new slug, so a repoint it fails to notice is never noticed at all.
+        await syncTickets(handle.db, repointed, {
+            token: "test-token",
+            now: SECOND_RUN,
+            transport: second.transport,
+            isCacheEnabled: false,
+        });
+
+        const rows = handle.db.select().from(tickets).all();
+        expect(rows.map((row) => row.nodeId)).toEqual(["new-pr"]);
+        expect(handle.db.select().from(reviews).all()).toHaveLength(0);
     });
 });
 
@@ -782,6 +905,128 @@ test("an assignee who never authored or reviewed is still bridged and warned abo
 
         const result = await runSync(handle, config, transport, FIRST_RUN);
         expect(result.unmappedLogins).toEqual(["planner-gh"]);
+    });
+});
+
+test("a login that only ever closed a ticket is still warned about", async () => {
+    await withCache(async (handle) => {
+        const config = parseConfig({
+            repos: [{ name: REPO_NAME, path: "/unused", github: SLUG }],
+            authors: {
+                "dev-one": {
+                    emails: ["dev-one@example.com"],
+                    github: [HUMAN.login],
+                },
+            },
+            tickets: {
+                source: "github",
+                github: { token: "env:GITHUB_TOKEN", includeIssues: false },
+                // Under this mode the closer is who the ticket counts for.
+                attribution: "closer",
+            },
+        });
+        const { transport } = cannedTransport({
+            pullRequests: [
+                pullRequestPage([
+                    pullRequestNode({
+                        id: "pr-1",
+                        number: 1,
+                        updatedAt: "2026-07-18T10:00:00Z",
+                        author: HUMAN,
+                        closedBy: { login: "releaser-gh", typename: "User" },
+                    }),
+                ]),
+            ],
+        });
+
+        const result = await runSync(handle, config, transport, FIRST_RUN);
+        expect(result.unmappedLogins).toEqual(["releaser-gh"]);
+    });
+});
+
+test("two repos resolving to one slug are refused before any request", async () => {
+    await withCache(async (handle) => {
+        const config = parseConfig({
+            repos: [
+                { name: REPO_NAME, path: "/unused", github: SLUG },
+                {
+                    name: "web-worktree",
+                    path: "/unused-too",
+                    github: "Acme/Web",
+                },
+            ],
+            tickets: {
+                source: "github",
+                github: { token: "env:GITHUB_TOKEN", includeIssues: false },
+            },
+        });
+        const { transport, cursors } = cannedTransport({
+            pullRequests: [pullRequestPage([])],
+        });
+
+        const { error } = await tryCatch(
+            runSync(handle, config, transport, FIRST_RUN)
+        );
+        expect(error).toBeInstanceOf(GitHubError);
+        if (error instanceof GitHubError) {
+            expect(error.code).toBe(GITHUB_ERROR_CODES.SLUG_DUPLICATE);
+            expect(error.message).toContain("web-worktree");
+        }
+        expect(cursors).toEqual([]);
+    });
+});
+
+test("the rate-limit backoff waits before a request, never after the last page", async () => {
+    await withCache(async (handle) => {
+        const exhausted = {
+            cost: 3,
+            remaining: 4,
+            resetAt: "2099-01-01T00:00:00Z",
+        };
+        const { transport } = cannedTransport({
+            pullRequests: [
+                {
+                    rateLimit: exhausted,
+                    repository: {
+                        pullRequests: {
+                            pageInfo: {
+                                hasNextPage: true,
+                                endCursor: "page-2",
+                            },
+                            nodes: [
+                                pullRequestNode({
+                                    id: "pr-1",
+                                    number: 1,
+                                    updatedAt: "2026-07-18T10:00:00Z",
+                                    author: HUMAN,
+                                }),
+                            ],
+                        },
+                    },
+                },
+                {
+                    rateLimit: exhausted,
+                    repository: {
+                        pullRequests: { pageInfo: LAST_PAGE, nodes: [] },
+                    },
+                },
+            ],
+        });
+
+        const sleep = spyOn(Bun, "sleep").mockImplementation(() =>
+            Promise.resolve()
+        );
+        let waits = 0;
+        try {
+            await runSync(handle, buildConfig(), transport, FIRST_RUN);
+            waits = sleep.mock.calls.length;
+        } finally {
+            sleep.mockRestore();
+        }
+
+        // Once before page two, and not once the walk has nothing left to
+        // fetch: an hour spent sleeping there reads as a hang.
+        expect(waits).toBe(1);
     });
 });
 

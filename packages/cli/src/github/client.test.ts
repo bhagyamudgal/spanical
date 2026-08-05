@@ -182,8 +182,10 @@ test("a recorded pull-request page still satisfies the response schema", () => {
         expect(row.kind).toBe("pr");
         expect(Number.isFinite(row.createdAt)).toBe(true);
         expect(Number.isFinite(row.updatedAt)).toBe(true);
-        // filteredCount honours itemTypes; totalCount would report the whole
-        // timeline length and turn every pull request into a reopened one.
+        // Only that reopened deserialises to a number. The guard against a
+        // regression to totalCount (which ignores itemTypes and would turn every
+        // pull request into a reopened one) is the schema: it requires the
+        // filteredCount key, so the query and the parser cannot drift apart.
         expect(row.reopenedCount).toBe(0);
         buildReviewRows(resolver, "web-app", node);
     }

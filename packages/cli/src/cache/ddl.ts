@@ -2,6 +2,10 @@
 // second representation of schema.ts's tables. The introspection test in
 // cache.test.ts guards the two against drift by comparing PRAGMA table_info
 // against the Drizzle column definitions.
+//
+// PRAGMA foreign_keys is never enabled, so every REFERENCES clause below is
+// documentation: nothing cascades and nothing is enforced. Code that deletes a
+// parent row has to remove its children itself.
 
 export const CREATE_TABLE_STATEMENTS = [
     `CREATE TABLE authors (

@@ -15,7 +15,7 @@ type RunFlags = TypeOf<typeof globalFlags>;
 const DEFAULT_FORMAT = "table";
 
 export type ResolvedRun = {
-    repos: { name: string; path: string; branch?: string }[];
+    repos: SpanicalConfig["repos"];
     config: SpanicalConfig;
     tz: string;
     exclude: string[];

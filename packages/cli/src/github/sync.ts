@@ -60,6 +60,10 @@ type Page<Node> = {
     nodes: (Node | null)[] | null;
 };
 
+// The point budget is per token rather than per repository, so the reading from
+// the last page fetched has to outlive the walk it came from.
+type RateLimitGate = { last: RateLimit | null };
+
 type RepoSyncOptions = {
     token: string;
     transport: GraphQLTransport;
@@ -68,6 +72,7 @@ type RepoSyncOptions = {
     since: string | null;
     timezone: string;
     now: Date;
+    rateLimit: RateLimitGate;
 };
 
 export type RepoSync = {
@@ -106,7 +111,9 @@ export function resolveFetchFloors(
             isRepointed: false,
         };
     }
-    if (cursor.slug !== slug) {
+    // GitHub owners and names are case-insensitive, so a config override that
+    // only re-cases the origin slug must not read as a repoint and purge.
+    if (cursor.slug.toLowerCase() !== slug.toLowerCase()) {
         return {
             pullRequests: sinceFloor,
             issues: sinceFloor,
@@ -148,19 +155,34 @@ function purgeRepoTickets(db: CacheDatabase, repoName: string): void {
 
 // Issues are only ever refreshed while includeIssues is on, so rows left behind
 // by switching it off would be counted by every later report without ever being
-// updated again.
-function purgeRepoIssues(db: CacheDatabase, repoName: string): number {
+// updated again. The delete and the watermark it invalidates commit together: a
+// delete that outlived its watermark would leave a cursor that reads as healthy
+// while the rows it claims to cover are gone, and no later run could tell.
+function purgeRepoIssues(
+    db: CacheDatabase,
+    repoName: string,
+    issuesFloor: number
+): number {
     const scope = and(
         eq(tickets.repo, repoName),
         eq(tickets.kind, TICKET_KIND.issue)
     );
-    const cached =
-        db.select({ value: count() }).from(tickets).where(scope).get()?.value ??
-        0;
-    if (cached > 0) {
-        db.delete(tickets).where(scope).run();
-    }
-    return cached;
+    return db.transaction((tx) => {
+        const cached =
+            tx.select({ value: count() }).from(tickets).where(scope).get()
+                ?.value ?? 0;
+        if (cached === 0) {
+            return 0;
+        }
+        tx.delete(tickets).where(scope).run();
+        // No cursor row means no watermark to invalidate: the next run reads a
+        // null cursor and backfills from the since bound anyway.
+        tx.update(githubSyncs)
+            .set({ issuesSyncedThrough: issuesFloor })
+            .where(eq(githubSyncs.repo, repoName))
+            .run();
+        return cached;
+    });
 }
 
 function writePage(
@@ -189,6 +211,7 @@ function writePage(
 
 async function paginate<Node extends { updatedAt: string }>(
     floor: number,
+    gate: RateLimitGate,
     fetchPage: (
         cursor: string | null
     ) => Promise<{ page: Page<Node>; rateLimit: RateLimit | null }>,
@@ -197,7 +220,11 @@ async function paginate<Node extends { updatedAt: string }>(
     let cursor: string | null = null;
     let consumed = 0;
     for (;;) {
+        // Waiting before a request rather than after one keeps the protection
+        // while never sleeping out an hour once there is nothing left to fetch.
+        await applyRateLimitBackoff(gate.last);
         const { page, rateLimit } = await fetchPage(cursor);
+        gate.last = rateLimit;
         const nodes = compactNodes(page.nodes);
         // Nodes arrive newest-updated first, so the first node older than the
         // floor ends the walk for this repository.
@@ -206,7 +233,6 @@ async function paginate<Node extends { updatedAt: string }>(
         );
         consume(fresh);
         consumed += fresh.length;
-        await applyRateLimitBackoff(rateLimit);
         const { hasNextPage, endCursor } = page.pageInfo;
         if (fresh.length < nodes.length || !hasNextPage || endCursor === null) {
             return consumed;
@@ -226,6 +252,7 @@ async function syncPullRequests(
     let reviewCount = 0;
     const ticketCount = await paginate<PullRequestNode>(
         floor,
+        options.rateLimit,
         async (cursor) => {
             const response = await runGraphQLQuery({
                 query: PULL_REQUESTS_QUERY,
@@ -267,6 +294,7 @@ async function syncIssues(
 ): Promise<number> {
     return paginate<IssueNode>(
         floor,
+        options.rateLimit,
         async (cursor) => {
             const response = await runGraphQLQuery({
                 query: ISSUES_QUERY,
@@ -319,11 +347,21 @@ export async function syncRepoTickets(
     options: RepoSyncOptions
 ): Promise<RepoSync> {
     const formattedSlug = formatSlug(slug);
+    const sinceFloor = toInstant(options.since, options.timezone);
     // --no-cache drops the watermark so the walk restarts from the since bound;
-    // the upserts make re-writing pages that were already cached idempotent.
-    const cursor = options.isCacheEnabled
-        ? readSyncCursor(db, repo.name)
-        : null;
+    // the upserts make re-writing pages that were already cached idempotent. It
+    // must not drop the slug too: this run stores the new one either way, so a
+    // repoint it declines to notice is a repoint no later run can notice.
+    const stored = readSyncCursor(db, repo.name);
+    const cursor =
+        stored === null || options.isCacheEnabled
+            ? stored
+            : {
+                  ...stored,
+                  since: options.since,
+                  syncedThrough: sinceFloor,
+                  issuesSyncedThrough: sinceFloor,
+              };
     const floors = resolveFetchFloors(cursor, formattedSlug, options);
     if (floors.isRepointed) {
         process.stderr.write(
@@ -332,7 +370,7 @@ export async function syncRepoTickets(
         purgeRepoTickets(db, repo.name);
     }
     if (!options.includeIssues) {
-        const dropped = purgeRepoIssues(db, repo.name);
+        const dropped = purgeRepoIssues(db, repo.name, sinceFloor);
         if (dropped > 0) {
             process.stderr.write(
                 `note: ${repo.name} no longer syncs issues; dropping ${dropped} cached issue row(s) so they stop counting.\n`
@@ -369,9 +407,7 @@ export async function syncRepoTickets(
         syncedThrough: watermark,
         // With issues off there are no issue rows left to resume from, so the
         // watermark returns to the since bound and re-enabling backfills.
-        issuesSyncedThrough: options.includeIssues
-            ? watermark
-            : toInstant(options.since, options.timezone),
+        issuesSyncedThrough: options.includeIssues ? watermark : sinceFloor,
         syncedAt,
     };
     db.insert(githubSyncs)
@@ -385,6 +421,28 @@ export async function syncRepoTickets(
         ticketCount: pullRequests.ticketCount + issueCount,
         reviewCount: pullRequests.reviewCount,
     };
+}
+
+// Ticket rows are keyed on GitHub's global node id while every scope and purge
+// is keyed on the local repo name, so two entries resolving to one slug would
+// rewrite each other's rows rather than duplicate them — a corruption the
+// (repo, kind, number) index cannot see, because repo is overwritten too.
+function assertDistinctSlugs(
+    targets: { repo: RepoRef; slug: RepoSlug }[]
+): void {
+    const claimedBy = new Map<string, string>();
+    for (const target of targets) {
+        const formatted = formatSlug(target.slug);
+        const key = formatted.toLowerCase();
+        const claimant = claimedBy.get(key);
+        if (claimant !== undefined) {
+            throw new GitHubError(
+                GITHUB_ERROR_CODES.SLUG_DUPLICATE,
+                `Repos "${claimant}" and "${target.repo.name}" both resolve to ${formatted}, and their ticket rows would overwrite each other. Drop one entry, or give it its own repository with github: "owner/name" in spanical.config.ts.`
+            );
+        }
+        claimedBy.set(key, target.repo.name);
+    }
 }
 
 export function requireTicketsConfig(config: SpanicalConfig): TicketsConfig {
@@ -411,9 +469,13 @@ export async function syncTickets(
 
     // Every slug resolves before the first request, so a repo with no origin
     // fails in the first second instead of after paying for its predecessors.
-    const slugs = await Promise.all(
-        config.repos.map((repo) => resolveRepoSlug(repo))
+    const targets = await Promise.all(
+        config.repos.map(async (repo) => ({
+            repo,
+            slug: await resolveRepoSlug(repo),
+        }))
     );
+    assertDistinctSlugs(targets);
 
     const resolver = bridgeGithubLogins(db, config);
     const repoOptions: RepoSyncOptions = {
@@ -424,21 +486,21 @@ export async function syncTickets(
         isCacheEnabled: options.isCacheEnabled ?? true,
         since: config.since ?? null,
         timezone: config.timezone,
+        rateLimit: { last: null },
     };
 
     // Repositories sync one at a time because the GraphQL point budget is per
     // token, not per repository.
     const repos: RepoSync[] = [];
-    for (const [index, repo] of config.repos.entries()) {
-        const slug = slugs[index];
-        if (slug === undefined) {
-            throw new GitHubError(
-                GITHUB_ERROR_CODES.SLUG_INVALID,
-                `Repo "${repo.name}" resolved to no GitHub slug.`
-            );
-        }
+    for (const target of targets) {
         repos.push(
-            await syncRepoTickets(db, resolver, repo, slug, repoOptions)
+            await syncRepoTickets(
+                db,
+                resolver,
+                target.repo,
+                target.slug,
+                repoOptions
+            )
         );
     }
 

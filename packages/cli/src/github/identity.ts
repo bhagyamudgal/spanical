@@ -128,6 +128,13 @@ export function findUnmappedLogins(
         .from(tickets)
         .where(and(inRepos, eq(tickets.assigneeIsBot, false)))
         .all();
+    // attribution: "closer" credits tickets to whoever closed them, so a login
+    // that only ever appears there still splits an identity.
+    const closers = db
+        .selectDistinct({ login: tickets.closedBy })
+        .from(tickets)
+        .where(and(inRepos, eq(tickets.closedByIsBot, false)))
+        .all();
     const reviewed = db
         .selectDistinct({ login: reviews.reviewer })
         .from(reviews)
@@ -136,7 +143,7 @@ export function findUnmappedLogins(
         .all();
 
     const unmapped = new Map<string, string>();
-    for (const row of [...authored, ...assigned, ...reviewed]) {
+    for (const row of [...authored, ...assigned, ...closers, ...reviewed]) {
         if (row.login === null) {
             continue;
         }

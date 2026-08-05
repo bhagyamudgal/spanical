@@ -1,8 +1,10 @@
 import { z } from "zod";
 
 // GitHub declares every connection as `nodes: [T]` — a nullable list of nullable
-// elements, with nulls returned for nodes the token cannot see. Modelling that
-// keeps a partially visible page from aborting the whole sync.
+// elements, with nulls returned for nodes the token cannot see. The schemas
+// model that shape so a null element fails as missing data rather than as an
+// unrecognised response; the accompanying top-level `errors` entry is what the
+// client refuses on.
 function nullableNodes<Node extends z.ZodType>(node: Node) {
     return z.array(node.nullable()).nullable();
 }
