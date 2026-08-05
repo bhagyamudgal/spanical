@@ -40,13 +40,16 @@ export type PerRepoInsight = {
     ownership: OwnershipAggregation;
     complexity: ComplexityAttribution;
     timeline: TimelinePeriod[];
-    tickets: TicketInsight | null;
 };
 
 // Null where no GitHub token or no tickets config was found: the report then
 // renders exactly its offline sections rather than an empty ticket placeholder.
+// One nullable field carries the combined insight, the per-repo insights and the
+// refresh failure together, so no caller can render appendix ticket counts while
+// the warning that they are stale goes missing.
 export type ReportTickets = {
-    insight: TicketInsight;
+    combined: TicketInsight;
+    byRepo: Map<string, TicketInsight>;
     failure: TicketRefreshFailure | null;
 };
 
@@ -66,7 +69,7 @@ export type ReportArtifactInput = {
 type AppendixContext = {
     granularity: Granularity;
     window: string;
-    ticketFailure: TicketRefreshFailure | null;
+    tickets: ReportTickets | null;
 };
 
 function fencedBlock(content: string): string {
@@ -88,20 +91,28 @@ function contributorsBlock(
     });
 }
 
+function appendixTicketBlocks(
+    repo: string,
+    context: AppendixContext
+): string[] {
+    const { tickets } = context;
+    const repoInsight = tickets?.byRepo.get(repo);
+    if (tickets === null || repoInsight === undefined) {
+        return [];
+    }
+    return ticketSections({
+        insight: repoInsight,
+        failure: tickets.failure,
+        window: context.window,
+        repos: [repo],
+        level: APPENDIX_SECTION_LEVEL,
+    });
+}
+
 function repoAppendixSection(
     insight: PerRepoInsight,
     context: AppendixContext
 ): string {
-    const ticketBlocks =
-        insight.tickets === null
-            ? []
-            : ticketSections({
-                  insight: insight.tickets,
-                  failure: context.ticketFailure,
-                  window: context.window,
-                  repos: [insight.repo],
-                  level: APPENDIX_SECTION_LEVEL,
-              });
     return [
         `### ${insight.repo}`,
         fencedBlock(
@@ -112,7 +123,7 @@ function repoAppendixSection(
         `#### Ownership & bus-factor${SECTION_GAP}${renderOwnershipReport("md", insight.ownership)}`,
         `#### Timeline${SECTION_GAP}${renderMarkdown(timelineTable(insight.timeline))}`,
         `#### Contributors${SECTION_GAP}${contributorsBlock(insight.contributors, insight.complexity)}`,
-        ...ticketBlocks,
+        ...appendixTicketBlocks(insight.repo, context),
     ].join(SECTION_GAP);
 }
 
@@ -127,7 +138,7 @@ export function buildReportArtifact(input: ReportArtifactInput): string {
             repoAppendixSection(insight, {
                 granularity,
                 window: run.window.label,
-                ticketFailure: input.tickets?.failure ?? null,
+                tickets: input.tickets,
             })
         )
         .join(SECTION_GAP);
@@ -144,7 +155,7 @@ export function buildReportArtifact(input: ReportArtifactInput): string {
         input.tickets === null
             ? []
             : ticketSections({
-                  insight: input.tickets.insight,
+                  insight: input.tickets.combined,
                   failure: input.tickets.failure,
                   window: run.window.label,
                   repos: repoNames,

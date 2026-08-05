@@ -457,10 +457,6 @@ function buildArtifact(
                     perDev: repoContributors,
                 }),
                 timeline: [],
-                tickets:
-                    refresh === null
-                        ? null
-                        : collectTicketInsight(db, RUN, refresh, [repo]),
             };
         }
     );
@@ -477,8 +473,16 @@ function buildArtifact(
             refresh === null
                 ? null
                 : {
-                      insight: collectTicketInsight(db, RUN, refresh, [
+                      combined: collectTicketInsight(db, RUN, refresh, [
                           "web-app",
+                      ]),
+                      byRepo: new Map([
+                          [
+                              "web-app",
+                              collectTicketInsight(db, RUN, refresh, [
+                                  "web-app",
+                              ]),
+                          ],
                       ]),
                       failure: refresh.failure,
                   },
@@ -824,10 +828,6 @@ async function buildMultiRepoArtifact(
                               window: WINDOW,
                               repos: [{ name: repo, path: repoPath }],
                           }),
-                tickets:
-                    refresh === null
-                        ? null
-                        : collectTicketInsight(db, run, refresh, [repo]),
             };
         })
     );
@@ -844,7 +844,13 @@ async function buildMultiRepoArtifact(
             refresh === null
                 ? null
                 : {
-                      insight: collectTicketInsight(db, run, refresh, repos),
+                      combined: collectTicketInsight(db, run, refresh, repos),
+                      byRepo: new Map(
+                          repos.map((repo) => [
+                              repo,
+                              collectTicketInsight(db, run, refresh, [repo]),
+                          ])
+                      ),
                       failure: refresh.failure,
                   },
         run,

@@ -35,7 +35,6 @@ import { formatHeadline } from "../report/headline";
 import {
     collectTicketInsight,
     refreshTicketCache,
-    type TicketInsight,
     type TicketRefresh,
 } from "../report/ticket-layer";
 import type { Granularity } from "../window";
@@ -79,17 +78,6 @@ function computeContributors(
     });
 }
 
-function collectRepoTickets(
-    db: CacheDatabase,
-    run: ResolvedRun,
-    refresh: TicketRefresh | null,
-    repos: string[]
-): TicketInsight | null {
-    return refresh === null
-        ? null
-        : collectTicketInsight(db, run, refresh, repos);
-}
-
 function buildReportTickets(
     db: CacheDatabase,
     run: ResolvedRun,
@@ -99,7 +87,13 @@ function buildReportTickets(
     return refresh === null
         ? null
         : {
-              insight: collectTicketInsight(db, run, refresh, repos),
+              combined: collectTicketInsight(db, run, refresh, repos),
+              byRepo: new Map(
+                  repos.map((repo) => [
+                      repo,
+                      collectTicketInsight(db, run, refresh, [repo]),
+                  ])
+              ),
               failure: refresh.failure,
           };
 }
@@ -217,7 +211,6 @@ export async function runReport(
                                   window: run.window,
                                   repos: [{ name: repo, path: repoPath }],
                               }),
-                    tickets: collectRepoTickets(db, run, ticketRefresh, [repo]),
                 };
             })
         );
