@@ -61,10 +61,11 @@ async function readGraphQLData(
 
     const { data: payload, error } = await tryCatch<unknown>(response.json());
     if (error) {
+        const failure = `GitHub GraphQL ${queryName} returned a body that is not JSON`;
         throw new GitHubError(
             GITHUB_ERROR_CODES.RESPONSE_INVALID,
-            `GitHub GraphQL ${queryName} returned a body that is not JSON: ${error.message}`,
-            { cause: error }
+            `${failure}: ${error.message}`,
+            { cause: error, artifactMessage: `${failure}.` }
         );
     }
 
@@ -80,7 +81,10 @@ async function readGraphQLData(
     if (messages.length > 0) {
         throw new GitHubError(
             GITHUB_ERROR_CODES.QUERY_FAILED,
-            `GitHub GraphQL ${queryName} returned errors: ${messages.map((entry) => entry.message).join("; ")}`
+            `GitHub GraphQL ${queryName} returned errors: ${messages.map((entry) => entry.message).join("; ")}`,
+            {
+                artifactMessage: `GitHub GraphQL ${queryName} returned ${messages.length} error(s).`,
+            }
         );
     }
     return envelope.data.data;
@@ -110,12 +114,13 @@ export async function runGraphQLQuery<Schema extends z.ZodType>(options: {
     const data = await readGraphQLData(response, options.queryName);
     const parsed = options.schema.safeParse(data);
     if (!parsed.success) {
+        const failure = `GitHub GraphQL ${options.queryName} returned an unexpected shape`;
         throw new GitHubError(
             GITHUB_ERROR_CODES.RESPONSE_INVALID,
-            `GitHub GraphQL ${options.queryName} returned an unexpected shape: ${parsed.error.issues
+            `${failure}: ${parsed.error.issues
                 .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
                 .join("; ")}`,
-            { cause: parsed.error }
+            { cause: parsed.error, artifactMessage: `${failure}.` }
         );
     }
     return parsed.data;
