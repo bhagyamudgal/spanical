@@ -173,6 +173,21 @@ function render(result: ReviewAggregation, format: RenderFormat): string {
     });
 }
 
+const TABLE_COLUMN_SEPARATOR = "│";
+
+// Column position is the whole claim a rendered row makes, so the cells are
+// read apart rather than searched for as substrings.
+function tableCells(table: string, label: string): string[] {
+    const line =
+        Bun.stripANSI(table)
+            .split("\n")
+            .find((row) => row.includes(label)) ?? "";
+    return line
+        .split(TABLE_COLUMN_SEPARATOR)
+        .map((cell) => cell.trim())
+        .filter((cell) => cell.length > 0);
+}
+
 // Four merged pull requests, three of them reviewed: dev-two answers a review
 // request after 4h, dev-three drives by with no request 10h after the pull
 // request opened, a bot answers in half an hour, and one merge is never seen.
@@ -360,6 +375,106 @@ test("several reviews inside one request cycle count as one sample", () => {
     });
 });
 
+test("a reviewer on two pull requests is credited with two reviews given", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        seed(
+            handle,
+            [
+                pullRequest({
+                    id: "pr-1",
+                    number: 1,
+                    author: DEV_ONE,
+                    createdAt: "2026-07-10T00:00:00Z",
+                    mergedAt: "2026-07-12T00:00:00Z",
+                }),
+                pullRequest({
+                    id: "pr-2",
+                    number: 2,
+                    author: DEV_ONE,
+                    createdAt: "2026-07-11T00:00:00Z",
+                    mergedAt: "2026-07-13T00:00:00Z",
+                }),
+            ],
+            [
+                review({
+                    id: "review-1",
+                    pullRequest: "pr-1",
+                    reviewer: DEV_TWO,
+                    requestedAt: "2026-07-10T00:00:00Z",
+                    submittedAt: "2026-07-10T02:00:00Z",
+                }),
+                review({
+                    id: "review-2",
+                    pullRequest: "pr-2",
+                    reviewer: DEV_TWO,
+                    requestedAt: "2026-07-11T00:00:00Z",
+                    submittedAt: "2026-07-11T08:00:00Z",
+                }),
+            ]
+        );
+
+        // Distinct pull requests are what reviews given counts, so the metric
+        // only means anything once one reviewer has answered more than one.
+        const devTwo = devNamed(aggregate(handle).devs, "dev-two");
+        expect(devTwo?.reviewsGiven).toBe(2);
+        expect(devTwo?.requestedSamples).toBe(2);
+        expect(devTwo?.latencyMedianHours).toBe(5);
+    });
+});
+
+test("two GitHub logins mapped to one author fold into a single row", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        upsertGithubLogin(
+            handle.db,
+            "dev-two-alt-gh",
+            upsertAuthor(handle.db, "dev-two")
+        );
+        seed(
+            handle,
+            [
+                pullRequest({
+                    id: "pr-1",
+                    number: 1,
+                    author: DEV_ONE,
+                    createdAt: "2026-07-10T00:00:00Z",
+                    mergedAt: "2026-07-12T00:00:00Z",
+                }),
+                pullRequest({
+                    id: "pr-2",
+                    number: 2,
+                    author: DEV_ONE,
+                    createdAt: "2026-07-11T00:00:00Z",
+                    mergedAt: "2026-07-13T00:00:00Z",
+                }),
+            ],
+            [
+                review({
+                    id: "review-1",
+                    pullRequest: "pr-1",
+                    reviewer: DEV_TWO,
+                    submittedAt: "2026-07-10T02:00:00Z",
+                }),
+                review({
+                    id: "review-2",
+                    pullRequest: "pr-2",
+                    reviewer: { login: "dev-two-alt-gh" },
+                    submittedAt: "2026-07-11T02:00:00Z",
+                }),
+            ]
+        );
+        const result = aggregate(handle);
+
+        // Tallying by author rather than by login is the whole reason the
+        // identity mapping is resolved at query time; a second login for the
+        // same person has to read as more review load, not another reviewer.
+        expect(result.devs.map((dev) => dev.author)).toEqual(["dev-two"]);
+        expect(result.devs[0]?.reviewsGiven).toBe(2);
+        expect(result.unattributed.reviewsGiven).toBe(0);
+    });
+});
+
 test("a self-review counts nowhere, not for the reviewer and not for coverage", () => {
     withCache((handle) => {
         seedAuthors(handle);
@@ -455,7 +570,7 @@ test("a pending review is not counted until it is submitted", () => {
     });
 });
 
-test("bot reviews stay out of the per-dev rows but count toward coverage", () => {
+test("an unmapped bot's review counts toward the team and coverage, not per dev", () => {
     withCache((handle) => {
         seedAuthors(handle);
         seed(handle, FIXTURE_PULL_REQUESTS, FIXTURE_REVIEWS);
@@ -468,6 +583,33 @@ test("bot reviews stay out of the per-dev rows but count toward coverage", () =>
         expect(result.team.reviewsGiven).toBe(3);
         expect(result.unattributed.reviewsGiven).toBe(1);
         expect(result.coverage.pullRequestsReviewed).toBe(3);
+    });
+});
+
+test("a bot mapped to an author is still kept out of the per-dev rows", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        // Mapping the bot login is what makes the bot rule load-bearing: an
+        // unmapped bot is kept out of the per-dev rows by having no author at
+        // all, so only a mapped one can prove the rule is what excludes it.
+        upsertGithubLogin(
+            handle.db,
+            BOT.login,
+            upsertAuthor(handle.db, "renovate")
+        );
+        seed(handle, FIXTURE_PULL_REQUESTS, FIXTURE_REVIEWS);
+        const result = aggregate(handle);
+
+        expect(result.devs.map((dev) => dev.author)).toEqual([
+            "dev-three",
+            "dev-two",
+        ]);
+        // The other half of the asymmetry: the same review the per-dev rows
+        // refuse still covers the pull request it was left on.
+        expect(result.team.reviewsGiven).toBe(3);
+        expect(result.unattributed.reviewsGiven).toBe(1);
+        expect(result.coverage.pullRequestsReviewed).toBe(3);
+        expect(result.coverage.share).toBe(0.75);
     });
 });
 
@@ -587,6 +729,88 @@ test("a review submitted outside the window is left out of the load", () => {
     });
 });
 
+test("a re-request answered inside the window is sampled from that request", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        seed(
+            handle,
+            [
+                pullRequest({
+                    id: "pr-1",
+                    number: 1,
+                    author: DEV_ONE,
+                    createdAt: "2026-06-20T00:00:00Z",
+                    mergedAt: "2026-07-05T00:00:00Z",
+                }),
+            ],
+            [
+                review({
+                    id: "review-1",
+                    pullRequest: "pr-1",
+                    reviewer: DEV_TWO,
+                    requestedAt: "2026-06-20T00:00:00Z",
+                    submittedAt: "2026-06-21T00:00:00Z",
+                }),
+                review({
+                    id: "review-2",
+                    pullRequest: "pr-1",
+                    reviewer: DEV_TWO,
+                    requestedAt: "2026-07-02T00:00:00Z",
+                    submittedAt: "2026-07-02T05:00:00Z",
+                }),
+            ]
+        );
+
+        // The window filters the sample, not the rows it is drawn from: the
+        // answer to the first ask fell outside it, the answer to the
+        // re-request did not, and only the second is this window's latency.
+        const devTwo = devNamed(aggregate(handle).devs, "dev-two");
+        expect(devTwo?.requestedSamples).toBe(1);
+        expect(devTwo?.latencyMedianHours).toBe(5);
+        expect(devTwo?.reviewsGiven).toBe(1);
+    });
+});
+
+test("a drive-by before the window leaves review load and no latency at all", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        seed(
+            handle,
+            [
+                pullRequest({
+                    id: "pr-1",
+                    number: 1,
+                    author: DEV_ONE,
+                    createdAt: "2026-06-20T00:00:00Z",
+                    mergedAt: "2026-07-05T00:00:00Z",
+                }),
+            ],
+            [
+                review({
+                    id: "review-1",
+                    pullRequest: "pr-1",
+                    reviewer: DEV_TWO,
+                    submittedAt: "2026-06-25T00:00:00Z",
+                }),
+                review({
+                    id: "review-2",
+                    pullRequest: "pr-1",
+                    reviewer: DEV_TWO,
+                    submittedAt: "2026-07-02T00:00:00Z",
+                }),
+            ]
+        );
+
+        // Requestless reviews are one lifetime cycle per reviewer and pull
+        // request, and this one was answered before the window opened, so the
+        // in-window review is load the latency medians cannot speak for.
+        const devTwo = devNamed(aggregate(handle).devs, "dev-two");
+        expect(devTwo?.reviewsGiven).toBe(1);
+        expect(devTwo?.createdSamples).toBe(0);
+        expect(devTwo?.latencyMedianHours).toBeNull();
+    });
+});
+
 test("a review of another repo's pull request never reaches the totals", () => {
     withCache((handle) => {
         seedAuthors(handle);
@@ -643,16 +867,13 @@ test("the per-dev rows and the unattributed gap add up to the team count", () =>
         seed(handle, FIXTURE_PULL_REQUESTS, FIXTURE_REVIEWS);
         const { devs, team, unattributed } = aggregate(handle);
 
-        expect(
-            devs.reduce((sum, dev) => sum + dev.reviewsGiven, 0) +
-                unattributed.reviewsGiven
-        ).toBe(team.reviewsGiven);
-        expect(
-            devs.reduce(
-                (sum, dev) => sum + dev.requestedSamples + dev.createdSamples,
-                0
-            ) + unattributed.latencySamples
-        ).toBe(team.requestedSamples + team.createdSamples);
+        expect(devs.map((dev) => dev.reviewsGiven)).toEqual([1, 1]);
+        expect(team.reviewsGiven).toBe(3);
+        // The bot's review is the whole gap, and it was never sampled for
+        // latency, so the samples reconcile with nothing left over.
+        expect(unattributed.reviewsGiven).toBe(1);
+        expect(unattributed.latencySamples).toBe(0);
+        expect(team.requestedSamples + team.createdSamples).toBe(2);
     });
 });
 
@@ -733,16 +954,31 @@ test("markdown carries the read flags, the basis mix and the coverage line", () 
     });
 });
 
-test("the terminal table names every review column", () => {
+test("the terminal table prints each dev's numbers under its own column", () => {
     withCache((handle) => {
         seedAuthors(handle);
         seed(handle, FIXTURE_PULL_REQUESTS, FIXTURE_REVIEWS);
         const table = render(aggregate(handle), "table");
 
-        expect(table).toContain("Reviews given");
-        expect(table).toContain("Review latency h");
-        expect(table).toContain("Latency basis");
-        expect(table).toContain("dev-two");
+        expect(tableCells(table, "Author")).toEqual([
+            "Author",
+            "Reviews given (signal)",
+            "Review latency h (signal)",
+            "Latency basis (context)",
+        ]);
+        // Header labels alone would pass while every number sat one column off.
+        expect(tableCells(table, "dev-two")).toEqual([
+            "dev-two",
+            "1",
+            "4",
+            "1 requested, 0 created",
+        ]);
+        expect(tableCells(table, "dev-three")).toEqual([
+            "dev-three",
+            "1",
+            "10",
+            "0 requested, 1 created",
+        ]);
         expect(table).toContain("Review coverage: 3 of 4");
     });
 });
@@ -754,10 +990,17 @@ test("json returns the raw aggregation rather than a rendered grid", () => {
         const result = aggregate(handle);
 
         // Structured, not prose: a consumer has to be able to test the basis mix
-        // and the cache coverage without parsing a note.
+        // and the cache coverage without parsing a note, per row as well as for
+        // the team, since the notes that carry the caveats are absent here.
         const parsed: unknown = JSON.parse(render(result, "json"));
-        expect(parsed).toEqual(JSON.parse(JSON.stringify(result)));
+        expect(parsed).toHaveProperty(["team", "reviewsGiven"], 3);
+        expect(parsed).toHaveProperty(["team", "latencyMedianHours"], 7);
+        expect(parsed).toHaveProperty(["team", "requestedSamples"], 1);
+        expect(parsed).toHaveProperty(["team", "createdSamples"], 1);
         expect(parsed).toHaveProperty(["team", "fallbackShare"], 0.5);
+        expect(parsed).toHaveProperty(["devs", 0, "author"], "dev-three");
+        expect(parsed).toHaveProperty(["devs", 0, "createdSamples"], 1);
+        expect(parsed).toHaveProperty(["devs", 0, "fallbackShare"], 1);
         expect(parsed).toHaveProperty(["coverage", "share"], 0.75);
         expect(parsed).toHaveProperty(["lateSyncFloors"], []);
     });
@@ -774,9 +1017,12 @@ test("an empty review window says so instead of rendering an empty grid", () => 
             expect(output).toContain(REPO);
             expect(output).not.toContain("Reviews given");
         }
-        expect(JSON.parse(render(result, "json"))).toEqual(
-            JSON.parse(JSON.stringify(result))
-        );
+        // json is the one format with no prose to fall back on, so the empty
+        // window has to reach it as a payload rather than as the message.
+        const parsed: unknown = JSON.parse(render(result, "json"));
+        expect(parsed).toHaveProperty(["devs"], []);
+        expect(parsed).toHaveProperty(["team", "reviewsGiven"], 0);
+        expect(parsed).toHaveProperty(["coverage", "pullRequestsMerged"], 0);
     });
 });
 
