@@ -1,8 +1,20 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+    mkdirSync,
+    mkdtempSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { ConfigError, loadConfig, parseConfig } from "./load";
+import { basename, join } from "node:path";
+import {
+    ConfigError,
+    loadConfig,
+    parseConfig,
+    resolveConfig,
+    resolveConfigPath,
+} from "./load";
 import { defineConfig } from "../public";
 
 test("parseConfig fills all documented defaults from a minimal config", () => {
@@ -199,6 +211,140 @@ test("loadConfig fails clearly when the config has no default export", async () 
         await expect(loadConfig({ cwd: dir })).rejects.toThrow(
             /no default export/
         );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+function initGitRepo(): string {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-cfg-repo-"));
+    const result = Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    if (result.exitCode !== 0) {
+        throw new Error(`git init failed: ${result.stderr.toString()}`);
+    }
+    return dir;
+}
+
+test("resolveConfig falls back to the working directory's git repo when no config file exists", async () => {
+    const dir = initGitRepo();
+    try {
+        const cfg = await resolveConfig({ cwd: dir });
+        expect(cfg.repos).toHaveLength(1);
+        expect(cfg.repos[0]?.name).toBe(basename(dir));
+        expect(cfg.timezone).toBe("UTC");
+        expect(cfg.authors).toEqual({});
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("a config at the repo root is discovered from a subdirectory", async () => {
+    const dir = initGitRepo();
+    try {
+        writeFileSync(join(dir, "spanical.config.ts"), MINIMAL_FIXTURE);
+        const nested = join(dir, "packages", "web");
+        mkdirSync(nested, { recursive: true });
+
+        expect(resolveConfigPath({ cwd: nested })).toBe(
+            join(dir, "spanical.config.ts")
+        );
+        const cfg = await resolveConfig({ cwd: nested });
+        expect(cfg.repos[0]?.name).toBe("web-app");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("discovery stops at the git root instead of escaping the repository", async () => {
+    const outer = mkdtempSync(join(tmpdir(), "spanical-outer-"));
+    try {
+        writeFileSync(join(outer, "spanical.config.ts"), MINIMAL_FIXTURE);
+        const inner = join(outer, "inner");
+        mkdirSync(inner, { recursive: true });
+        const init = Bun.spawnSync(["git", "init", "-q"], { cwd: inner });
+        if (init.exitCode !== 0) {
+            throw new Error(`git init failed: ${init.stderr.toString()}`);
+        }
+
+        expect(resolveConfigPath({ cwd: inner })).toBe(
+            join(inner, "spanical.config.ts")
+        );
+        const cfg = await resolveConfig({ cwd: inner });
+        expect(cfg.repos[0]?.name).toBe(basename(inner));
+    } finally {
+        rmSync(outer, { recursive: true, force: true });
+    }
+});
+
+test("a subdirectory run keeps the config path at the git root when none exists", () => {
+    const dir = initGitRepo();
+    try {
+        const nested = join(dir, "packages", "web");
+        mkdirSync(nested, { recursive: true });
+        expect(resolveConfigPath({ cwd: nested })).toBe(
+            join(dir, "spanical.config.ts")
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("a dangling config symlink errors instead of falling back to defaults", async () => {
+    const dir = initGitRepo();
+    try {
+        symlinkSync(join(dir, "missing.ts"), join(dir, "spanical.config.ts"));
+        await expect(resolveConfig({ cwd: dir })).rejects.toThrow(
+            /No spanical config/
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("an empty --config value is treated as no explicit path", async () => {
+    const dir = initGitRepo();
+    try {
+        writeFileSync(join(dir, "spanical.config.ts"), MINIMAL_FIXTURE);
+        const cfg = await resolveConfig({ configPath: "", cwd: dir });
+        expect(cfg.repos[0]?.name).toBe("web-app");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("resolveConfig prefers explicit repos over the working directory's git repo", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-not-a-repo-"));
+    try {
+        const cfg = await resolveConfig({
+            cwd: dir,
+            repos: [{ name: "web-app", path: "../web-app" }],
+        });
+        expect(cfg.repos).toEqual([{ name: "web-app", path: "../web-app" }]);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("resolveConfig errors when there is neither a config file nor a git repository", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-not-a-repo-"));
+    try {
+        await expect(resolveConfig({ cwd: dir })).rejects.toThrow(
+            /not inside a git repository/
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("resolveConfig still errors when an explicit config path does not exist", async () => {
+    const dir = initGitRepo();
+    try {
+        await expect(
+            resolveConfig({
+                configPath: join(dir, "does-not-exist.ts"),
+                cwd: dir,
+            })
+        ).rejects.toThrow(/No spanical config/);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

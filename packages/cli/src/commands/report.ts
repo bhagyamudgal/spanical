@@ -16,7 +16,6 @@ import type { CacheDatabase } from "../cache/open";
 import { openCache } from "../cache/open";
 import { globalFlags } from "../cli/global-flags";
 import { resolveRunConfig, type ResolvedRun } from "../cli/resolve-run";
-import { loadConfig } from "../config/load";
 import {
     ensureBaselineSnapshots,
     ensureExtracted,
@@ -95,8 +94,8 @@ export async function runReport(
     configPath: string | undefined,
     now: Date
 ): Promise<{ terminal: string; artifactPath: string }> {
-    await ensureExtracted(configPath, run.cache, now);
-    const config = await loadConfig({ configPath });
+    await ensureExtracted(run, configPath, now);
+    const { config } = run;
     const handle = openCache({ configPath });
     try {
         const { db } = handle;

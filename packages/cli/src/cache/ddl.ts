@@ -52,6 +52,7 @@ export const CREATE_TABLE_STATEMENTS = [
         branch TEXT NOT NULL,
         tip_sha TEXT NOT NULL,
         since TEXT,
+        config_key TEXT NOT NULL,
         extracted_at INTEGER NOT NULL
     );`,
     `CREATE TABLE file_ownership (

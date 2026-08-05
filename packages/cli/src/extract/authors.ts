@@ -37,7 +37,10 @@ function upsertAlias(
 ): void {
     db.insert(authorAliases)
         .values({ email, name, authorId })
-        .onConflictDoNothing()
+        .onConflictDoUpdate({
+            target: authorAliases.email,
+            set: { name, authorId },
+        })
         .run();
 }
 

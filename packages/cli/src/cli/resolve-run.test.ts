@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { TZDate } from "@date-fns/tz";
 import { resolveRunConfig } from "./resolve-run";
 import { WindowError } from "../window";
@@ -54,6 +54,20 @@ test("--repo replaces config repos and derives names from basenames", async () =
         });
         expect(run.repos.map((repo) => repo.name)).toEqual(["web-app", "api"]);
         expect(run.repos[0]?.path).toBe("../web-app");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("--repo . takes its name from the working directory, not the literal dot", async () => {
+    const dir = writeFixture();
+    try {
+        const run = await resolveRunConfig({
+            flags: { repo: "." },
+            cwd: dir,
+            now: NOW,
+        });
+        expect(run.repos).toEqual([{ name: basename(dir), path: "." }]);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
@@ -135,6 +149,35 @@ test("an invalid timezone throws a WindowError", async () => {
                 now: NOW,
             })
         ).rejects.toThrow(WindowError);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("without a config file the working directory's git repo becomes the only repo", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-run-repo-"));
+    const init = Bun.spawnSync(["git", "init", "-q"], { cwd: dir });
+    if (init.exitCode !== 0) {
+        throw new Error(`git init failed: ${init.stderr.toString()}`);
+    }
+    try {
+        const run = await resolveRunConfig({ flags: {}, cwd: dir, now: NOW });
+        expect(run.repos.map((repo) => repo.name)).toEqual([basename(dir)]);
+        expect(run.tz).toBe("UTC");
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("--repo is honoured without a config file or a git repo at the working directory", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-run-empty-"));
+    try {
+        const run = await resolveRunConfig({
+            flags: { repo: "../web-app" },
+            cwd: dir,
+            now: NOW,
+        });
+        expect(run.repos).toEqual([{ name: "web-app", path: "../web-app" }]);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }

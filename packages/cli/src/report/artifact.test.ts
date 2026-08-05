@@ -21,6 +21,7 @@ import {
     sccSnapshots,
 } from "../cache/schema";
 import type { ResolvedRun } from "../cli/resolve-run";
+import { parseConfig } from "../config/load";
 import type { Period, ResolvedWindow } from "../window/types";
 import { buildReportArtifact, type PerRepoInsight } from "./artifact";
 import { defaultReportPath } from "./filename";
@@ -46,6 +47,7 @@ const WINDOW: ResolvedWindow = {
 
 const RUN: ResolvedRun = {
     repos: [{ name: "web-app", path: "/tmp/web-app" }],
+    config: parseConfig({ repos: [{ name: "web-app", path: "/tmp/web-app" }] }),
     tz: "UTC",
     exclude: [],
     by: "dev",
@@ -234,6 +236,7 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
             branch: "main",
             tipSha: "c2",
             since: null,
+            configKey: "empty",
             extractedAt: Date.UTC(2025, 6, 6),
         })
         .run();
@@ -525,6 +528,7 @@ function seedMultiRepoFixture(): {
                 branch: "main",
                 tipSha: "w2",
                 since: null,
+                configKey: "empty",
                 extractedAt: Date.UTC(2025, 6, 6),
             },
             {
@@ -532,6 +536,7 @@ function seedMultiRepoFixture(): {
                 branch: "main",
                 tipSha: "a2",
                 since: null,
+                configKey: "empty",
                 extractedAt: Date.UTC(2025, 6, 7),
             },
         ])

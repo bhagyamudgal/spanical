@@ -81,6 +81,7 @@ export const extractions = sqliteTable("extractions", {
     branch: text("branch").notNull(),
     tipSha: text("tip_sha").notNull(),
     since: text("since"),
+    configKey: text("config_key").notNull(),
     extractedAt: integer("extracted_at").notNull(),
 });
 

@@ -1,7 +1,7 @@
-import { basename } from "node:path";
+import { basename, resolve } from "node:path";
 import type { TypeOf } from "@drizzle-team/brocli";
-import { loadConfig } from "../config/load";
-import { isValidTimeZone } from "../config/schema";
+import { resolveConfig } from "../config/load";
+import { isValidTimeZone, type SpanicalConfig } from "../config/schema";
 import {
     resolveWindow,
     WindowError,
@@ -16,6 +16,7 @@ const DEFAULT_FORMAT = "table";
 
 export type ResolvedRun = {
     repos: { name: string; path: string; branch?: string }[];
+    config: SpanicalConfig;
     tz: string;
     exclude: string[];
     by: "dev" | "file" | "dir" | "language" | null;
@@ -32,24 +33,11 @@ function splitList(value: string): string[] {
         .filter((item) => item.length > 0);
 }
 
-export async function resolveRunConfig(input: {
-    flags: Partial<RunFlags>;
-    cwd?: string;
-    now: Date;
-}): Promise<ResolvedRun> {
-    const { flags } = input;
-    const config = await loadConfig({
-        configPath: flags.config,
-        cwd: input.cwd,
-    });
-
-    const repos =
-        flags.repo !== undefined && flags.repo.length > 0
-            ? splitList(flags.repo).map((path) => ({
-                  name: basename(path),
-                  path,
-              }))
-            : config.repos;
+function parseRepoFlag(value: string, cwd: string): ResolvedRun["repos"] {
+    const repos = splitList(value).map((path) => ({
+        name: basename(resolve(cwd, path)),
+        path,
+    }));
 
     const repoNames = repos.map((repo) => repo.name);
     if (new Set(repoNames).size !== repoNames.length) {
@@ -66,6 +54,26 @@ export async function resolveRunConfig(input: {
         );
     }
 
+    return repos;
+}
+
+export async function resolveRunConfig(input: {
+    flags: Partial<RunFlags>;
+    cwd?: string;
+    now: Date;
+}): Promise<ResolvedRun> {
+    const { flags } = input;
+    const flagRepos =
+        flags.repo !== undefined && flags.repo.length > 0
+            ? parseRepoFlag(flags.repo, input.cwd ?? process.cwd())
+            : undefined;
+    const config = await resolveConfig({
+        configPath: flags.config,
+        cwd: input.cwd,
+        repos: flagRepos,
+    });
+    const repos = config.repos;
+
     const tz = flags.tz ?? config.timezone;
     if (!isValidTimeZone(tz)) {
         throw new WindowError(
@@ -81,6 +89,7 @@ export async function resolveRunConfig(input: {
 
     return {
         repos,
+        config,
         tz,
         exclude,
         by: flags.by ?? null,

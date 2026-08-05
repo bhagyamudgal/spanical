@@ -10,7 +10,7 @@ import {
 } from "../cache/schema";
 import type { ResolvedRun } from "../cli/resolve-run";
 import type { SpanicalConfig } from "../config/schema";
-import { extractAll } from "../extract";
+import { extractWithConfig } from "../extract";
 import { seedAndResolveAuthors, type AuthorResolver } from "../extract/authors";
 import { blameFile, type BlameTally } from "../extract/blame";
 import { resolveDefaultBranch, runGit } from "../extract/git";
@@ -30,11 +30,15 @@ type OwnershipInsertRow = typeof fileOwnership.$inferInsert;
 type RepoRef = { name: string; path: string; branch?: string };
 
 export async function ensureExtracted(
+    run: ResolvedRun,
     configPath: string | undefined,
-    cache: boolean,
     now: Date
 ): Promise<void> {
-    await extractAll({ configPath, noCache: !cache, now });
+    await extractWithConfig(run.config, {
+        configPath,
+        noCache: !run.cache,
+        now,
+    });
 }
 
 export function earliestCommitInstant(

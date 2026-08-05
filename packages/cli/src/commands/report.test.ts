@@ -1,6 +1,7 @@
 import { test as runFlags } from "@drizzle-team/brocli";
 import { expect, test } from "bun:test";
 import type { ResolvedRun } from "../cli/resolve-run";
+import { parseConfig } from "../config/load";
 import type { Granularity } from "../window";
 import { formatRunHeader, reportCommand } from "./report";
 
@@ -16,6 +17,7 @@ function buildRun(input: {
     }));
     return {
         repos,
+        config: parseConfig({ repos }),
         tz: input.tz,
         exclude: [],
         by: "dev",

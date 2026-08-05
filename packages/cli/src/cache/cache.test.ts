@@ -179,6 +179,7 @@ test("gatherCacheStats counts rows and formatCacheStats renders them", () => {
                 branch: "main",
                 tipSha: "abc123",
                 since: null,
+                configKey: "empty",
                 extractedAt,
             })
             .run();

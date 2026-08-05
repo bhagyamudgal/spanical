@@ -6,6 +6,8 @@ import type { ParsedCommit } from "./types";
 const ORIGIN_PREFIX = "origin/";
 const DEFAULT_BRANCH_CANDIDATES = ["main", "master"] as const;
 const SHALLOW_MARKER = "shallow";
+const NOT_A_REPOSITORY_EXIT_CODE = 128;
+const NOT_A_REPOSITORY_MARKER = "not a git repository";
 
 export function assertGitAvailable(): void {
     if (!Bun.which("git")) {
@@ -30,10 +32,29 @@ export async function runGit(args: string[], cwd: string): Promise<string> {
     if (exitCode !== 0) {
         throw new ExtractError(
             EXTRACT_ERROR_CODES.GIT_COMMAND_FAILED,
-            `git ${args.join(" ")} failed in ${cwd}: ${stderr.trim()}`
+            `git ${args.join(" ")} failed in ${cwd}: ${stderr.trim()}`,
+            { exitCode, stderr }
         );
     }
     return stdout;
+}
+
+export async function resolveGitRoot(cwd: string): Promise<string | null> {
+    const { data, error } = await tryCatch(
+        runGit(["rev-parse", "--show-toplevel"], cwd)
+    );
+    if (error === null) {
+        return data.trim();
+    }
+    const isOutsideRepository =
+        error instanceof ExtractError &&
+        error.exitCode === NOT_A_REPOSITORY_EXIT_CODE &&
+        error.stderr !== null &&
+        error.stderr.includes(NOT_A_REPOSITORY_MARKER);
+    if (isOutsideRepository) {
+        return null;
+    }
+    throw error;
 }
 
 async function refExists(cwd: string, ref: string): Promise<boolean> {
