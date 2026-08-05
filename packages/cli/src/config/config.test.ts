@@ -67,10 +67,7 @@ test("parseConfig accepts a valid tickets block with an env token reference", ()
         repos: [{ name: "web-app", path: "../web-app" }],
         tickets: {
             source: "github",
-            github: {
-                repos: ["owner/web-app"],
-                token: "env:GITHUB_TOKEN",
-            },
+            github: { token: "env:GITHUB_TOKEN" },
         },
     });
     expect(cfg.tickets?.github.token).toBe("env:GITHUB_TOKEN");
@@ -84,10 +81,7 @@ test("parseConfig rejects a literal (non-env) token", () => {
             repos: [{ name: "web-app", path: "../web-app" }],
             tickets: {
                 source: "github",
-                github: {
-                    repos: ["owner/web-app"],
-                    token: "ghp_literal",
-                },
+                github: { token: "ghp_literal" },
             },
         })
     ).toThrow(ConfigError);
@@ -99,11 +93,37 @@ test("parseConfig rejects a token that is not env:GITHUB_TOKEN", () => {
             repos: [{ name: "web-app", path: "../web-app" }],
             tickets: {
                 source: "github",
+                github: { token: "env:OTHER_TOKEN" },
+            },
+        })
+    ).toThrow(ConfigError);
+});
+
+test("parseConfig rejects tickets.github.repos, which origin parsing replaced", () => {
+    expect(() =>
+        parseConfig({
+            repos: [{ name: "web-app", path: "../web-app" }],
+            tickets: {
+                source: "github",
                 github: {
                     repos: ["owner/web-app"],
-                    token: "env:OTHER_TOKEN",
+                    token: "env:GITHUB_TOKEN",
                 },
             },
+        })
+    ).toThrow(ConfigError);
+});
+
+test("parseConfig accepts a per-repo github slug override and rejects a malformed one", () => {
+    const cfg = parseConfig({
+        repos: [{ name: "web-app", path: "../web-app", github: "acme/web" }],
+    });
+    expect(cfg.repos[0]?.github).toBe("acme/web");
+    expect(() =>
+        parseConfig({
+            repos: [
+                { name: "web-app", path: "../web-app", github: "acme-web" },
+            ],
         })
     ).toThrow(ConfigError);
 });
