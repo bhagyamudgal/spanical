@@ -216,9 +216,14 @@ function readCoverage(db: CacheDatabase, opts: TicketOptions): TicketCoverage {
     };
 }
 
-function hasWindowActivity(dev: DevTicketRollup): boolean {
+export function hasTicketActivity(counts: TicketCounts): boolean {
     return (
-        dev.opened + dev.merged + dev.closed + dev.reopened + dev.reverted > 0
+        counts.opened +
+            counts.merged +
+            counts.closed +
+            counts.reopened +
+            counts.reverted >
+        0
     );
 }
 
@@ -257,7 +262,7 @@ function buildDevRollups(
     // The counts query groups every cached ticket, so an author whose whole
     // history sits outside the window arrives as a group of zeroes.
     return [...byAuthor.values()]
-        .filter(hasWindowActivity)
+        .filter(hasTicketActivity)
         .sort(
             (left, right) =>
                 left.author.localeCompare(right.author) ||

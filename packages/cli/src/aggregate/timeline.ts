@@ -5,6 +5,7 @@ import { commitAuthors, commits, fileChanges } from "../cache/schema";
 import { runGit } from "../extract/git";
 import type { Period, ResolvedWindow } from "../window/types";
 import { aggregatePerPeriod } from "./per-period";
+import { median } from "./stats";
 import type {
     DominantCommitSubtype,
     PeriodRollup,
@@ -67,22 +68,10 @@ function periodIndexOf(periods: Period[], timestamp: number): number {
     return -1;
 }
 
-// Deliberately not aggregate/stats median: this one returns 0 rather than null
-// on an empty span because it is a divisor for the churn-spike multiple, never
-// a reported metric. The shared median must stay null-on-empty for the metrics
-// that are reported, so the two cannot be merged.
+// An empty span collapses to 0 rather than null because this is a divisor for
+// the churn-spike multiple, never a reported metric.
 function medianThroughput(perPeriod: PeriodRollup[]): number {
-    const values = perPeriod
-        .map((row) => row.throughput)
-        .sort((left, right) => left - right);
-    if (values.length === 0) {
-        return 0;
-    }
-    const mid = Math.floor(values.length / 2);
-    if (values.length % 2 === 1) {
-        return values[mid] ?? 0;
-    }
-    return ((values[mid - 1] ?? 0) + (values[mid] ?? 0)) / 2;
+    return median(perPeriod.map((row) => row.throughput)) ?? 0;
 }
 
 function busiestPeriodLabel(perPeriod: PeriodRollup[]): string | null {

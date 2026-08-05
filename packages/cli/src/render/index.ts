@@ -1,3 +1,4 @@
+import { hasTicketActivity } from "../aggregate/tickets";
 import type {
     DevComplexityRollup,
     DevPeriodRollup,
@@ -60,8 +61,9 @@ const OWNERSHIP_CAVEAT =
 const COMPLEXITY_CAVEAT =
     "Note: complexity attribution is approximate — scc measures per-file snapshots, not diffs, so only a file's net monthly complexity change is known; one dev's additions and another's removals inside the same file-month cannot be separated.";
 const TICKET_REVERT_CAVEAT =
-    'Note: revert matching is approximate — GitHub exposes no revert relationship, so a pull request titled Revert "X" is paired by title with the newest cached pull request titled X in the same repo that already existed when the revert was opened, and the thrash counts against that pull request rather than whoever reverted it.';
+    'Note: revert matching is approximate — GitHub exposes no revert relationship, so a pull request titled Revert "X" is paired by title with the most recently merged cached pull request titled X in the same repo that had already merged when the revert was opened, and the thrash counts against that pull request rather than whoever reverted it.';
 const REPORT_SEPARATOR = "\n\n";
+const TEAM_SEPARATOR = " · ";
 
 export type ContributorsReport = {
     contributors: DevPeriodRollup[];
@@ -135,38 +137,29 @@ function withSyncFloorNote(message: string, floors: SyncFloor[]): string {
     return [message, syncFloorNote(floors)].join(REPORT_SEPARATOR);
 }
 
-function ticketTeamLine(team: TicketTeamRollup): string {
+// One list, so a sixth count column cannot reach the team line and the
+// unattributed note in disagreement about what the window holds.
+function formatTicketCounts(counts: TicketCounts, separator: string): string {
     return [
-        `Team: ${formatCell(team.opened)} opened`,
-        `${formatCell(team.merged)} merged`,
-        `${formatCell(team.closed)} closed`,
-        `${formatCell(team.reopened)} reopened`,
-        `${formatCell(team.reverted)} reverted`,
-        `cycle time ${formatCell(team.cycleTimeMedianHours)}h median`,
-        `PR size ${formatCell(team.pullRequestSizeMedian)} lines median`,
-    ].join(" · ");
+        `${formatCell(counts.opened)} opened`,
+        `${formatCell(counts.merged)} merged`,
+        `${formatCell(counts.closed)} closed`,
+        `${formatCell(counts.reopened)} reopened`,
+        `${formatCell(counts.reverted)} reverted`,
+    ].join(separator);
 }
 
-function hasAnyCount(counts: TicketCounts): boolean {
-    return (
-        counts.opened +
-            counts.merged +
-            counts.closed +
-            counts.reopened +
-            counts.reverted >
-        0
-    );
+function ticketTeamLine(team: TicketTeamRollup): string {
+    return [
+        `Team: ${formatTicketCounts(team, TEAM_SEPARATOR)}`,
+        `cycle time ${formatCell(team.cycleTimeMedianHours)}h median`,
+        `PR size ${formatCell(team.pullRequestSizeMedian)} lines median`,
+    ].join(TEAM_SEPARATOR);
 }
 
 function unattributedTicketsNote(result: TicketAggregation): string {
     const { unattributed, attribution } = result;
-    const gaps = [
-        `${formatCell(unattributed.opened)} opened`,
-        `${formatCell(unattributed.merged)} merged`,
-        `${formatCell(unattributed.closed)} closed`,
-        `${formatCell(unattributed.reopened)} reopened`,
-        `${formatCell(unattributed.reverted)} reverted`,
-    ].join(", ");
+    const gaps = formatTicketCounts(unattributed, ", ");
     return `Note: the team totals carry ticket activity that no per-dev row does — ${gaps}. Under the "${attribution}" attribution mode that actor is unset, a bot, or a login with no author mapping; a reverted count also lands here when the reverted pull request itself credits nobody.`;
 }
 
@@ -182,8 +175,11 @@ function noCreditedDevsLine(result: TicketAggregation): string {
     return `No per-dev rows: every ticket in this window credits no author under the "${result.attribution}" attribution mode.`;
 }
 
+// The trigger is an empty window, not an empty cache, so the message leads with
+// the window: a fully synced repo with a quiet month must not read as a failed
+// sync. A genuine coverage gap is the sync-floor note's job.
 function noTicketsMessage(context: TicketsReportContext): string {
-    return `No tickets cached for ${context.window} in ${context.repos.join(", ")} — nothing was opened, merged or closed in this window.`;
+    return `No ticket activity in ${context.window} for ${context.repos.join(", ")} — nothing was opened, merged or closed.`;
 }
 
 export function renderTicketsReport(
@@ -223,7 +219,7 @@ export function renderTicketsReport(
     if (result.coverage.lateSyncFloors.length > 0) {
         sections.push(syncFloorNote(result.coverage.lateSyncFloors));
     }
-    if (hasAnyCount(unattributed)) {
+    if (hasTicketActivity(unattributed)) {
         sections.push(unattributedTicketsNote(result));
     }
     if (team.unmatchedReverts > 0) {

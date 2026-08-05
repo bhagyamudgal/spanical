@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, like, lt } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, like, lt } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import { authorGithubLogins, authors, tickets } from "../cache/schema";
 import { TICKET_KIND } from "../github/rows";
@@ -27,7 +27,7 @@ type RevertOptions = {
 
 type RevertPullRequest = { repo: string; createdAt: number; reverted: string };
 type Candidate = {
-    createdAt: number;
+    mergedAt: number;
     authorId: number | null;
     author: string | null;
     isBot: boolean;
@@ -86,7 +86,7 @@ function readCandidates(
         .select({
             repo: tickets.repo,
             title: tickets.title,
-            createdAt: tickets.createdAt,
+            mergedAt: tickets.mergedAt,
             authorId: authors.id,
             author: authors.canonicalName,
             isBot: credited.isBot,
@@ -101,17 +101,26 @@ function readCandidates(
             and(
                 inArray(tickets.repo, opts.repos),
                 eq(tickets.kind, TICKET_KIND.pullRequest),
-                inArray(tickets.title, titles)
+                inArray(tickets.title, titles),
+                // Only landed work can be reverted, so an open or abandoned
+                // pull request sharing the title is not a candidate at all.
+                isNotNull(tickets.mergedAt)
             )
         )
         .all();
 
     const byKey = new Map<string, Candidate[]>();
     for (const row of rows) {
+        const { mergedAt } = row;
+        // The where clause already dropped unmerged rows; the column stays
+        // nullable in the schema, so this narrows it without an assertion.
+        if (mergedAt === null) {
+            continue;
+        }
         const key = candidateKey(row.repo, row.title);
         const candidates = byKey.get(key) ?? [];
         candidates.push({
-            createdAt: row.createdAt,
+            mergedAt,
             authorId: row.authorId,
             author: row.author,
             isBot: row.isBot,
@@ -119,13 +128,14 @@ function readCandidates(
         byKey.set(key, candidates);
     }
     for (const candidates of byKey.values()) {
-        candidates.sort((left, right) => left.createdAt - right.createdAt);
+        candidates.sort((left, right) => left.mergedAt - right.mergedAt);
     }
     return byKey;
 }
 
-// The reverted title is not unique, so the newest pull request carrying it that
-// already existed when the revert was opened is the only defensible pairing.
+// The reverted title is not unique, so the most recently merged pull request
+// carrying it that had already landed when the revert was opened is the only
+// defensible pairing: nothing merged later could be what this revert undid.
 function pairCandidate(
     candidates: Candidate[] | undefined,
     revertedAt: number
@@ -135,7 +145,7 @@ function pairCandidate(
     }
     let paired: Candidate | null = null;
     for (const candidate of candidates) {
-        if (candidate.createdAt >= revertedAt) {
+        if (candidate.mergedAt >= revertedAt) {
             break;
         }
         paired = candidate;

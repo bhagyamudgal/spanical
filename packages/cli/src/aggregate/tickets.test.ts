@@ -6,7 +6,11 @@ import { openCache } from "../cache/open";
 import { githubSyncs, tickets } from "../cache/schema";
 import { upsertAuthor, upsertGithubLogin } from "../extract/authors";
 import { TICKET_KIND, type TicketRow } from "../github/rows";
-import { renderTicketsReport, type RenderFormat } from "../render";
+import {
+    renderTicketsReport,
+    type MarkdownLayout,
+    type RenderFormat,
+} from "../render";
 import type { ResolvedWindow } from "../window/types";
 import { aggregateTickets } from "./tickets";
 import type {
@@ -41,6 +45,25 @@ const COLLABORATION_CASES: [TicketAttribution, string][] = [
     ["author", "dev-one"],
     ["closer", "dev-three"],
 ];
+
+// Who carries each FIXTURE ticket, hand-derived per mode and listed in the
+// output's own author order. The team totals are identical across all three, so
+// only this split can tell a correct mode map from a swapped one.
+const FIXTURE_SPLITS: Record<TicketAttribution, [string, number, number][]> = {
+    assignee: [
+        ["dev-three", 2, 0],
+        ["dev-two", 2, 2],
+    ],
+    author: [
+        ["dev-one", 2, 1],
+        ["dev-three", 1, 0],
+        ["dev-two", 1, 1],
+    ],
+    closer: [
+        ["dev-three", 2, 1],
+        ["dev-two", 1, 1],
+    ],
+};
 
 function withCache<T>(fn: (handle: Handle) => T): T {
     const dir = mkdtempSync(join(tmpdir(), "spanical-tickets-"));
@@ -154,11 +177,17 @@ function devNamed(
     return devs.find((dev) => dev.author === author);
 }
 
-function render(result: TicketAggregation, format: RenderFormat): string {
-    return renderTicketsReport(format, result, {
-        window: WINDOW.label,
-        repos: [REPO],
-    });
+function render(
+    result: TicketAggregation,
+    format: RenderFormat,
+    layout?: MarkdownLayout
+): string {
+    return renderTicketsReport(
+        format,
+        result,
+        { window: WINDOW.label, repos: [REPO] },
+        layout
+    );
 }
 
 // One ticket, three different people on it: the mode decides who carries it.
@@ -244,7 +273,7 @@ test.each(COLLABORATION_CASES)(
     }
 );
 
-test("every attribution mode leaves the team totals untouched", () => {
+test("every attribution mode leaves the team totals untouched but moves the split", () => {
     withCache((handle) => {
         seedAuthors(handle);
         seedTickets(handle, FIXTURE);
@@ -254,6 +283,9 @@ test("every attribution mode leaves the team totals untouched", () => {
             expect(team.opened).toBe(5);
             expect(team.merged).toBe(3);
             expect(team.closed).toBe(1);
+            expect(
+                devs.map((dev) => [dev.author, dev.opened, dev.merged])
+            ).toEqual(FIXTURE_SPLITS[attribution]);
             expect(devs.reduce((sum, dev) => sum + dev.opened, 0)).toBe(
                 team.opened - unattributed.opened
             );
@@ -553,6 +585,109 @@ test("a repeated title pairs the revert with the newest pull request before it",
     });
 });
 
+test("a same-titled pull request that never merged cannot take the thrash", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        seedTickets(handle, [
+            ticketRow({
+                id: "pr-merged",
+                number: 1,
+                title: CHECKOUT_TITLE,
+                author: DEV_ONE,
+                createdAt: "2026-07-01T00:00:00Z",
+                mergedAt: "2026-07-01T10:00:00Z",
+            }),
+            ticketRow({
+                id: "pr-still-open",
+                number: 2,
+                title: CHECKOUT_TITLE,
+                author: DEV_THREE,
+                createdAt: "2026-07-04T00:00:00Z",
+            }),
+            ticketRow({
+                id: "pr-revert",
+                number: 6,
+                title: `Revert "${CHECKOUT_TITLE}"`,
+                author: DEV_TWO,
+                createdAt: "2026-07-08T00:00:00Z",
+                mergedAt: "2026-07-08T01:00:00Z",
+            }),
+        ]);
+
+        const { devs, team } = aggregate(handle, "author");
+        expect(devNamed(devs, "dev-one")?.reverted).toBe(1);
+        expect(devNamed(devs, "dev-three")?.reverted).toBe(0);
+        expect(team.unmatchedReverts).toBe(0);
+    });
+});
+
+test("a same-titled pull request merged after the revert cannot take the thrash", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        seedTickets(handle, [
+            ticketRow({
+                id: "pr-merged",
+                number: 1,
+                title: CHECKOUT_TITLE,
+                author: DEV_ONE,
+                createdAt: "2026-07-01T00:00:00Z",
+                mergedAt: "2026-07-01T10:00:00Z",
+            }),
+            ticketRow({
+                id: "pr-merged-later",
+                number: 2,
+                title: CHECKOUT_TITLE,
+                author: DEV_THREE,
+                createdAt: "2026-07-04T00:00:00Z",
+                mergedAt: "2026-07-22T00:00:00Z",
+            }),
+            ticketRow({
+                id: "pr-revert",
+                number: 6,
+                title: `Revert "${CHECKOUT_TITLE}"`,
+                author: DEV_TWO,
+                createdAt: "2026-07-08T00:00:00Z",
+                mergedAt: "2026-07-08T01:00:00Z",
+            }),
+        ]);
+
+        const { devs } = aggregate(handle, "author");
+        expect(devNamed(devs, "dev-one")?.reverted).toBe(1);
+        expect(devNamed(devs, "dev-three")?.reverted).toBe(0);
+    });
+});
+
+test("a revert whose only same-titled pull request never merged credits nobody", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        seedTickets(handle, [
+            ticketRow({
+                id: "pr-still-open",
+                number: 1,
+                title: CHECKOUT_TITLE,
+                author: DEV_ONE,
+                createdAt: "2026-07-01T00:00:00Z",
+            }),
+            ticketRow({
+                id: "pr-revert",
+                number: 6,
+                title: `Revert "${CHECKOUT_TITLE}"`,
+                author: DEV_TWO,
+                createdAt: "2026-07-08T00:00:00Z",
+                mergedAt: "2026-07-08T01:00:00Z",
+            }),
+        ]);
+
+        const { devs, team, unattributed } = aggregate(handle, "author");
+        expect(team.reverted).toBe(1);
+        // An unmerged original is reported as unmatched rather than charged to
+        // its author: the note explains it, a wrong per-dev number would not.
+        expect(team.unmatchedReverts).toBe(1);
+        expect(devs.every((dev) => dev.reverted === 0)).toBe(true);
+        expect(unattributed.reverted).toBe(1);
+    });
+});
+
 test("a login with no author mapping falls into the unattributed totals", () => {
     withCache((handle) => {
         seedTickets(handle, [COLLABORATED]);
@@ -819,7 +954,7 @@ test("an empty ticket window still discloses that the cache starts after it", ()
         seedSyncFloor(handle, "2026-07-20");
         const markdown = render(aggregate(handle, "author"), "md");
 
-        expect(markdown).toContain("No tickets cached for 2026-07");
+        expect(markdown).toContain("No ticket activity in 2026-07");
         expect(markdown).toContain("synced from a later date");
         expect(markdown).toContain("web-app (2026-07-20)");
     });
@@ -852,7 +987,6 @@ test("json exposes the coverage a consumer needs to compare two runs", () => {
             lateSyncFloors: [{ repo: REPO, since: "2026-07-04" }],
         });
         const parsed: unknown = JSON.parse(render(result, "json"));
-        expect(parsed).toEqual(JSON.parse(JSON.stringify(result)));
         expect(parsed).toHaveProperty(
             ["coverage", "lateSyncFloors", 0, "since"],
             "2026-07-04"
@@ -879,6 +1013,21 @@ test("markdown carries the read flags, the attribution and the revert caveat", (
     });
 });
 
+test("a caller nesting the report deeper controls the table heading level", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        seedTickets(handle, FIXTURE);
+        const result = aggregate(handle, "author");
+
+        const markdown = render(result, "md", { titleLevel: 3 });
+        expect(markdown).toContain("### Ticket flow · credited to the author");
+        expect(markdown).toContain("### Merged pull request size");
+        // "### x" contains "## x", so only anchoring to the line start can tell
+        // the requested level from the default one.
+        expect(markdown).not.toMatch(/^#{1,2} /m);
+    });
+});
+
 test("the terminal table names every ticket column", () => {
     withCache((handle) => {
         seedAuthors(handle);
@@ -899,7 +1048,16 @@ test("json returns the raw aggregation rather than a rendered grid", () => {
         const result = aggregate(handle, "author");
 
         const parsed: unknown = JSON.parse(render(result, "json"));
+        // The suite's one round-trip check: the json format is the payload
+        // itself, never a serialised table. Round-tripping holds for any
+        // aggregation, so the pinned values below carry the real signal.
         expect(parsed).toEqual(JSON.parse(JSON.stringify(result)));
+        expect(parsed).toHaveProperty(["attribution"], "author");
+        expect(parsed).toHaveProperty(["team", "opened"], 5);
+        expect(parsed).toHaveProperty(["team", "merged"], 3);
+        expect(parsed).toHaveProperty(["devs", 0, "author"], "dev-one");
+        expect(parsed).toHaveProperty(["devs", 0, "opened"], 2);
+        expect(parsed).toHaveProperty(["unattributed", "merged"], 1);
     });
 });
 
@@ -910,12 +1068,15 @@ test("an empty ticket window says so instead of rendering an empty grid", () => 
 
         for (const format of ["table", "md"] as const) {
             const output = render(result, format);
-            expect(output).toContain("No tickets cached for 2026-07");
+            expect(output).toContain("No ticket activity in 2026-07");
             expect(output).toContain(REPO);
             expect(output).not.toContain("Opened");
         }
-        expect(JSON.parse(render(result, "json"))).toEqual(
-            JSON.parse(JSON.stringify(result))
-        );
+        // json has no empty-window prose to fall back on, so it has to carry
+        // the zeroes and the empty row set explicitly.
+        const parsed: unknown = JSON.parse(render(result, "json"));
+        expect(parsed).toHaveProperty(["devs"], []);
+        expect(parsed).toHaveProperty(["team", "opened"], 0);
+        expect(parsed).toHaveProperty(["team", "cycleTimeMedianHours"], null);
     });
 });

@@ -57,7 +57,7 @@ Rework visible at the ticket level: reopened tickets and reverted pull requests.
 _Avoid_: churn (unqualified), rework churn (that's the line-lifetime metric)
 
 **Revert match**:
-The rule pairing a pull request titled `Revert "X"` with a cached pull request whose title is X, so the Thrash counts against the reverted work rather than the person who reverted it. Explicitly approximate — GitHub exposes no revert relationship, so an unmatched title counts only at team level.
+The rule pairing a pull request titled `Revert "X"` with the most recently merged cached pull request titled X in the same repo that had already merged when the revert was opened, so the Thrash counts against the reverted work rather than the person who reverted it. Only merged work is a candidate — nothing else ever landed to be undone. Explicitly approximate — GitHub exposes no revert relationship, so an unmatched title counts only at team level.
 
 **Cycle time**:
 Elapsed time from a pull request opening to its merge, reported as a median.
