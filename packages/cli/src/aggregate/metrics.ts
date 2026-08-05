@@ -19,6 +19,9 @@ export type TicketMetricKey =
     | "cycleTimeMedianHours"
     | "pullRequestSizeMedian";
 
+export type ReviewMetricKey =
+    "reviewsGiven" | "latencyMedianHours" | "latencyBasis";
+
 export type MetricDefinition<Key extends string = string> = {
     key: Key;
     label: string;
@@ -44,4 +47,10 @@ export const TICKET_METRICS: MetricDefinition<TicketMetricKey>[] = [
     { key: "reverted", label: "Reverted", flag: "context" },
     { key: "cycleTimeMedianHours", label: "Cycle time h", flag: "signal" },
     { key: "pullRequestSizeMedian", label: "PR size", flag: "signal" },
+];
+
+export const REVIEW_METRICS: MetricDefinition<ReviewMetricKey>[] = [
+    { key: "reviewsGiven", label: "Reviews given", flag: "signal" },
+    { key: "latencyMedianHours", label: "Review latency h", flag: "signal" },
+    { key: "latencyBasis", label: "Latency basis", flag: "context" },
 ];

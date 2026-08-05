@@ -2,7 +2,11 @@ import { hasTicketActivity } from "../aggregate/tickets";
 import type {
     DevComplexityRollup,
     DevPeriodRollup,
+    ExcludedReviews,
     OwnershipAggregation,
+    ReviewAggregation,
+    ReviewCoverage,
+    ReviewTeamRollup,
     SyncFloor,
     TicketAggregation,
     TicketCounts,
@@ -16,9 +20,12 @@ import {
     busFactorTable,
     complexityTable,
     devTable,
+    formatLatencyBasis,
     ownershipTable,
     pullRequestSizeTable,
+    reviewDevTable,
     ticketDevTable,
+    toPercent,
 } from "./tables";
 import type { TableModel } from "./table-model";
 import { renderTable } from "./terminal";
@@ -44,9 +51,11 @@ export {
     churnPeriodTable,
     complexityTable,
     devTable,
+    formatLatencyBasis,
     hotspotsTable,
     ownershipTable,
     pullRequestSizeTable,
+    reviewDevTable,
     sizeTable,
     ticketDevTable,
     timelineTable,
@@ -62,6 +71,13 @@ const COMPLEXITY_CAVEAT =
     "Note: complexity attribution is approximate — scc measures per-file snapshots, not diffs, so only a file's net monthly complexity change is known; one dev's additions and another's removals inside the same file-month cannot be separated.";
 const TICKET_REVERT_CAVEAT =
     'Note: revert matching is approximate — GitHub exposes no revert relationship, so a pull request titled Revert "X" is paired by title with the most recently merged cached pull request titled X in the same repo that had already merged when the revert was opened, and the thrash counts against that pull request rather than whoever reverted it.';
+const REVIEW_COUNT_CAVEAT =
+    "Note: reviews given counts the distinct pull requests a reviewer submitted a review on, so several reviews on one pull request read as one, and a review on the reviewer's own pull request never counts. A review still pending counts nowhere until it is submitted. Bot reviewers stay in the team review count and in review coverage but never move a latency median.";
+const REVIEW_LATENCY_CAVEAT =
+    'Note: review latency takes one sample per request cycle — the first review submitted after a review request, and again after each re-request. A "requested" sample is measured from the review request; a "created" sample from the pull request opening, because no review request for it was cached. The two clocks measure different things, so read a median against its basis mix rather than on its own.';
+const REVIEW_COVERAGE_CAVEAT =
+    "Note: review coverage is measured over the pull requests merged in this window — a merged pull request's review history is final, while an open one can still pick up a review tomorrow — and counts one as covered when anyone other than its own author reviewed it, whenever that review landed.";
+const NO_LATENCY_SAMPLES = "no samples";
 const REPORT_SEPARATOR = "\n\n";
 const TEAM_SEPARATOR = " · ";
 
@@ -227,6 +243,124 @@ export function renderTicketsReport(
     }
     if (team.cycleTimesDiscarded > 0) {
         sections.push(discardedCycleTimesNote(team.cycleTimesDiscarded));
+    }
+    return sections.join(REPORT_SEPARATOR);
+}
+
+export type ReviewsReportContext = { window: string; repos: string[] };
+
+function reviewTeamLine(team: ReviewTeamRollup): string {
+    return [
+        `Team: ${formatCell(team.reviewsGiven)} reviews given`,
+        `review latency ${formatCell(team.latencyMedianHours)}h median`,
+        `latency basis ${formatLatencyBasis(team) ?? NO_LATENCY_SAMPLES}`,
+    ].join(" · ");
+}
+
+function unmergedClause(unmerged: number): string {
+    if (unmerged === 0) {
+        return "";
+    }
+    return ` ${formatCell(unmerged)} further pull request(s) opened in this window have not merged and sit outside coverage entirely.`;
+}
+
+function reviewCoverageLine(coverage: ReviewCoverage): string {
+    const unmerged = unmergedClause(coverage.pullRequestsUnmerged);
+    if (coverage.share === null) {
+        return `Review coverage: no pull request merged in this window, so coverage has nothing to measure.${unmerged}`;
+    }
+    return `Review coverage: ${formatCell(coverage.pullRequestsReviewed)} of ${formatCell(coverage.pullRequestsMerged)} merged pull request(s) carry a review (${toPercent(coverage.share)}).${unmerged}`;
+}
+
+function discardedLatencyNote(count: number): string {
+    return `Note: ${formatCell(count)} review(s) report a submission earlier than the opening of the pull request they are on and are left out of the latency medians.`;
+}
+
+function unattributedReviewsNote(
+    unattributed: ReviewAggregation["unattributed"]
+): string {
+    return `Note: the team totals carry review activity that no per-dev row does — ${formatCell(unattributed.reviewsGiven)} review(s) given and ${formatCell(unattributed.latencySamples)} latency sample(s). The reviewer was a bot, a deleted account, or a GitHub login with no author mapping.`;
+}
+
+// Every message about what was counted reads off the raw counts, never off
+// reviewsGiven: that number is already net of self-reviews and pending reviews,
+// so reporting it as "nothing was submitted" would send a reader to check their
+// token when what they actually need is the exclusion rule.
+function excludedReviewsClause(excluded: ExcludedReviews): string {
+    const parts = [
+        excluded.selfReviews > 0
+            ? `${formatCell(excluded.selfReviews)} self-review(s) submitted in this window`
+            : null,
+        excluded.pendingReviews > 0
+            ? `${formatCell(excluded.pendingReviews)} cached review(s) still pending`
+            : null,
+    ].filter((part) => part !== null);
+    if (parts.length === 0) {
+        return "";
+    }
+    return ` ${parts.join(" and ")} count nowhere by definition.`;
+}
+
+function noCreditedReviewersLine(
+    team: ReviewTeamRollup,
+    excluded: ExcludedReviews
+): string {
+    if (team.reviewsGiven === 0) {
+        return `No per-dev rows: no review counted in this window.${excludedReviewsClause(excluded)}`;
+    }
+    return "No per-dev rows: every review in this window came from a bot, a deleted account, or a GitHub login with no author mapping.";
+}
+
+function noReviewsMessage(
+    context: ReviewsReportContext,
+    excluded: ExcludedReviews
+): string {
+    return `No reviews cached for ${context.window} in ${context.repos.join(", ")} — no pull request was merged in this window and no review counted in it.${excludedReviewsClause(excluded)}`;
+}
+
+export function renderReviewsReport(
+    format: RenderFormat,
+    result: ReviewAggregation,
+    context: ReviewsReportContext,
+    layout?: MarkdownLayout
+): string {
+    if (format === "json") return renderJson(result);
+    const { team, coverage, excluded, unattributed } = result;
+    // An empty window is the case most likely to be a cache artefact rather
+    // than a fact about the team, so the sync floor has to survive the early
+    // return that states it as one.
+    if (team.reviewsGiven === 0 && coverage.pullRequestsMerged === 0) {
+        return withSyncFloorNote(
+            noReviewsMessage(context, excluded),
+            result.lateSyncFloors
+        );
+    }
+
+    const renderModel = modelRenderer(format, layout);
+    const sections = [
+        result.devs.length === 0
+            ? noCreditedReviewersLine(team, excluded)
+            : renderModel(reviewDevTable(result.devs)),
+        reviewTeamLine(team),
+        reviewCoverageLine(coverage),
+        REVIEW_COUNT_CAVEAT,
+        REVIEW_LATENCY_CAVEAT,
+        REVIEW_COVERAGE_CAVEAT,
+    ];
+    if (result.lateSyncFloors.length > 0) {
+        sections.push(syncFloorNote(result.lateSyncFloors));
+    }
+    if (unattributed.reviewsGiven > 0 || unattributed.latencySamples > 0) {
+        sections.push(unattributedReviewsNote(unattributed));
+    }
+    if (team.latencySamplesDiscarded > 0) {
+        sections.push(discardedLatencyNote(team.latencySamplesDiscarded));
+    }
+    // A reviewer whose whole window was self-reviews and pending reviews is
+    // absent from every row above, so the page has to say they were seen.
+    const excludedClause = excludedReviewsClause(excluded);
+    if (excludedClause.length > 0) {
+        sections.push(`Note:${excludedClause}`);
     }
     return sections.join(REPORT_SEPARATOR);
 }

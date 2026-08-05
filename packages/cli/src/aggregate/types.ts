@@ -54,6 +54,59 @@ export type TicketAggregation = {
     unattributed: TicketCounts;
 };
 
+// Which clock a Review latency sample started from: "requested" where a review
+// request was cached, "created" where it falls back to the pull request opening.
+export type LatencyBasis = "requested" | "created";
+
+// The sample counts travel with the median because the two bases measure
+// different things: a median drawn mostly from the fallback reads as
+// responsiveness to an ask that was never made.
+export type ReviewLatency = {
+    latencyMedianHours: number | null;
+    requestedSamples: number;
+    createdSamples: number;
+    fallbackShare: number | null;
+};
+
+export type DevReviewRollup = ReviewLatency & {
+    authorId: number;
+    author: string;
+    reviewsGiven: number;
+};
+
+export type ReviewTeamRollup = ReviewLatency & {
+    reviewsGiven: number;
+    latencySamplesDiscarded: number;
+};
+
+// Team-level only, never per dev: the share of the window's merged pull requests
+// carrying a review from anyone other than their own author. The unmerged count
+// travels with it so the population left out of the denominator stays visible —
+// "1 of 1 (100%)" reads very differently beside nine open pull requests.
+export type ReviewCoverage = {
+    pullRequestsMerged: number;
+    pullRequestsReviewed: number;
+    pullRequestsUnmerged: number;
+    share: number | null;
+};
+
+// Reviews the window held that no metric could count. Carried as data because
+// "nothing was found" and "everything found was excluded by definition" call
+// for opposite responses from the reader.
+export type ExcludedReviews = {
+    selfReviews: number;
+    pendingReviews: number;
+};
+
+export type ReviewAggregation = {
+    coverage: ReviewCoverage;
+    excluded: ExcludedReviews;
+    lateSyncFloors: SyncFloor[];
+    devs: DevReviewRollup[];
+    team: ReviewTeamRollup;
+    unattributed: { reviewsGiven: number; latencySamples: number };
+};
+
 export type DevPeriodRollup = {
     period: string;
     authorId: number;

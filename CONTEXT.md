@@ -62,6 +62,18 @@ The rule pairing a pull request titled `Revert "X"` with the most recently merge
 **Cycle time**:
 Elapsed time from a pull request opening to its merge, reported as a median.
 
+**Reviews given**:
+The count of pull requests a developer reviewed for someone else — the contribution that never appears in line counts.
+
+**Review latency**:
+Elapsed time between a developer being asked for a review and their first submitted review on that pull request.
+
+**Latency basis**:
+Which clock a Review latency started from — `requested` where a review-request event exists, `created` where it falls back to the pull request's opening. Always reported alongside the median, because the two clocks measure different things.
+
+**Review coverage**:
+The share of the window's _merged_ pull requests carrying at least one review from someone other than their own author. Merged, because a merged pull request's review history is final while an open one can still be reviewed tomorrow. Reported alongside the count of pull requests opened in the window that have not merged, so the population left out of the denominator stays visible. A team-health number, never a per-dev one.
+
 ### Identity
 
 **Canonical author**:
