@@ -12,19 +12,28 @@ import {
 } from "../aggregate";
 import { openCache } from "../cache/open";
 import {
+    authorGithubLogins,
     authors,
     commitAuthors,
     commits,
     extractions,
     fileChanges,
     fileOwnership,
+    githubSyncs,
+    reviews,
     sccSnapshots,
+    tickets,
 } from "../cache/schema";
 import type { ResolvedRun } from "../cli/resolve-run";
 import { parseConfig } from "../config/load";
 import type { Period, ResolvedWindow } from "../window/types";
 import { buildReportArtifact, type PerRepoInsight } from "./artifact";
 import { defaultReportPath } from "./filename";
+import {
+    collectTicketInsight,
+    type TicketRefresh,
+    type TicketRefreshFailure,
+} from "./ticket-layer";
 
 const P1: Period = {
     label: "2025-06",
@@ -270,7 +279,116 @@ function seedFixture(): { handle: ReturnType<typeof openCache>; dir: string } {
     return { handle, dir };
 }
 
-function buildArtifact(handle: ReturnType<typeof openCache>): string {
+const DEV_ONE_LOGIN = "dev-one-gh";
+const DEV_TWO_LOGIN = "dev-two-gh";
+
+const TICKET_REFRESH: TicketRefresh = {
+    attribution: "assignee",
+    includeIssues: false,
+    failure: null,
+};
+
+function seedTickets(handle: ReturnType<typeof openCache>): void {
+    const { db } = handle;
+    db.insert(authorGithubLogins)
+        .values([
+            { login: DEV_ONE_LOGIN, authorId: 1 },
+            { login: DEV_TWO_LOGIN, authorId: 2 },
+        ])
+        .run();
+
+    db.insert(tickets)
+        .values([
+            {
+                nodeId: "pr-1",
+                repo: "web-app",
+                kind: "pr",
+                number: 1,
+                title: "feat: app",
+                author: DEV_ONE_LOGIN,
+                authorIsBot: false,
+                assignee: DEV_ONE_LOGIN,
+                assigneeIsBot: false,
+                closedBy: DEV_ONE_LOGIN,
+                closedByIsBot: false,
+                createdAt: Date.UTC(2025, 5, 10),
+                closedAt: Date.UTC(2025, 5, 12),
+                mergedAt: Date.UTC(2025, 5, 12),
+                updatedAt: Date.UTC(2025, 5, 12),
+                state: "MERGED",
+                reopenedCount: 0,
+                additions: 40,
+                deletions: 10,
+            },
+            {
+                nodeId: "pr-2",
+                repo: "web-app",
+                kind: "pr",
+                number: 2,
+                title: "feat: api",
+                author: DEV_TWO_LOGIN,
+                authorIsBot: false,
+                assignee: DEV_TWO_LOGIN,
+                assigneeIsBot: false,
+                closedBy: DEV_TWO_LOGIN,
+                closedByIsBot: false,
+                createdAt: Date.UTC(2025, 6, 5),
+                closedAt: Date.UTC(2025, 6, 6),
+                mergedAt: Date.UTC(2025, 6, 6),
+                updatedAt: Date.UTC(2025, 6, 6),
+                state: "MERGED",
+                reopenedCount: 0,
+                additions: 5,
+                deletions: 1,
+            },
+        ])
+        .run();
+
+    db.insert(reviews)
+        .values([
+            {
+                nodeId: "review-1",
+                prNodeId: "pr-1",
+                reviewer: DEV_TWO_LOGIN,
+                reviewerIsBot: false,
+                submittedAt: Date.UTC(2025, 5, 11),
+                requestedAt: Date.UTC(2025, 5, 10),
+                state: "APPROVED",
+            },
+            {
+                nodeId: "review-2",
+                prNodeId: "pr-2",
+                reviewer: DEV_ONE_LOGIN,
+                reviewerIsBot: false,
+                submittedAt: Date.UTC(2025, 6, 6),
+                requestedAt: Date.UTC(2025, 6, 5),
+                state: "APPROVED",
+            },
+        ])
+        .run();
+}
+
+function seedSyncFloor(
+    handle: ReturnType<typeof openCache>,
+    since: string
+): void {
+    handle.db
+        .insert(githubSyncs)
+        .values({
+            repo: "web-app",
+            slug: "acme/web-app",
+            since,
+            syncedThrough: Date.UTC(2025, 6, 1),
+            issuesSyncedThrough: Date.UTC(2025, 6, 1),
+            syncedAt: Date.UTC(2025, 6, 1),
+        })
+        .run();
+}
+
+function buildArtifact(
+    handle: ReturnType<typeof openCache>,
+    refresh: TicketRefresh | null = null
+): string {
     const { db } = handle;
     const full = aggregateAll(db, {
         window: WINDOW,
@@ -339,6 +457,10 @@ function buildArtifact(handle: ReturnType<typeof openCache>): string {
                     perDev: repoContributors,
                 }),
                 timeline: [],
+                tickets:
+                    refresh === null
+                        ? null
+                        : collectTicketInsight(db, RUN, refresh, [repo]),
             };
         }
     );
@@ -351,6 +473,15 @@ function buildArtifact(handle: ReturnType<typeof openCache>): string {
         timeline: [],
         perRepoInsights,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
+        tickets:
+            refresh === null
+                ? null
+                : {
+                      insight: collectTicketInsight(db, RUN, refresh, [
+                          "web-app",
+                      ]),
+                      failure: refresh.failure,
+                  },
         run: RUN,
     });
 }
@@ -578,9 +709,37 @@ function seedMultiRepoFixture(): {
     return { handle, dir };
 }
 
+function seedWebOnlyTickets(handle: ReturnType<typeof openCache>): void {
+    handle.db
+        .insert(tickets)
+        .values({
+            nodeId: "pr-web-1",
+            repo: "web",
+            kind: "pr",
+            number: 1,
+            title: "feat: home",
+            author: DEV_ONE_LOGIN,
+            authorIsBot: false,
+            assignee: DEV_ONE_LOGIN,
+            assigneeIsBot: false,
+            closedBy: DEV_ONE_LOGIN,
+            closedByIsBot: false,
+            createdAt: Date.UTC(2025, 6, 5),
+            closedAt: Date.UTC(2025, 6, 6),
+            mergedAt: Date.UTC(2025, 6, 6),
+            updatedAt: Date.UTC(2025, 6, 6),
+            state: "MERGED",
+            reopenedCount: 0,
+            additions: 30,
+            deletions: 10,
+        })
+        .run();
+}
+
 async function buildMultiRepoArtifact(
     handle: ReturnType<typeof openCache>,
-    dir: string
+    dir: string,
+    refresh: TicketRefresh | null = null
 ): Promise<string> {
     const { db } = handle;
     const repos = ["web", "api"];
@@ -665,6 +824,10 @@ async function buildMultiRepoArtifact(
                               window: WINDOW,
                               repos: [{ name: repo, path: repoPath }],
                           }),
+                tickets:
+                    refresh === null
+                        ? null
+                        : collectTicketInsight(db, run, refresh, [repo]),
             };
         })
     );
@@ -677,6 +840,13 @@ async function buildMultiRepoArtifact(
         timeline,
         perRepoInsights,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
+        tickets:
+            refresh === null
+                ? null
+                : {
+                      insight: collectTicketInsight(db, run, refresh, repos),
+                      failure: refresh.failure,
+                  },
         run,
     });
 }
@@ -874,6 +1044,215 @@ test("buildReportArtifact scopes each repo's appendix to that repo alone", async
         expect(webBlock).not.toContain("dev-two");
         expect(apiBlock).toContain("dev-two");
         expect(apiBlock).not.toContain("dev-one");
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+function headlineOf(artifact: string): string {
+    return artifact.slice(0, artifact.indexOf("## Timeline"));
+}
+
+function sizeOf(artifact: string): string {
+    return artifact.slice(
+        artifact.indexOf("## Size & complexity"),
+        artifact.indexOf("## Migrations")
+    );
+}
+
+test("buildReportArtifact omits the ticket sections when the ticket layer is off", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        seedTickets(handle);
+        const artifact = buildArtifact(handle);
+
+        expect(artifact).not.toContain("## Tickets");
+        expect(artifact).not.toContain("## Reviews");
+        expect(artifact).not.toContain("#### Tickets");
+        expect(artifact).not.toContain("#### Reviews");
+        expect(artifact).not.toContain("Review coverage");
+        expect(artifact).toContain("## Contributors");
+        expect(artifact).toContain("## Hotspots");
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact renders ticket flow and review load in both views", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        seedTickets(handle);
+        const artifact = buildArtifact(handle, TICKET_REFRESH);
+
+        const combined = artifact.slice(
+            artifact.indexOf("## Tickets"),
+            artifact.indexOf("## Hotspots")
+        );
+        expect(combined).toContain("## Tickets");
+        expect(combined).toContain(
+            "### Ticket flow · credited to the assignee"
+        );
+        expect(combined).toContain("## Reviews");
+        expect(combined).toContain("### Review load");
+        expect(combined).toContain(
+            "Team: 2 opened · 2 merged · 0 closed · 0 reopened · 0 reverted"
+        );
+        expect(combined).toContain(
+            "Review coverage: 2 of 2 merged pull request(s) carry a review (100%)"
+        );
+
+        const appendix = artifact.slice(
+            artifact.indexOf("## Per-repo appendix")
+        );
+        expect(appendix).toContain("#### Tickets");
+        expect(appendix).toContain(
+            "##### Ticket flow · credited to the assignee"
+        );
+        expect(appendix).toContain("#### Reviews");
+        expect(appendix).toContain("##### Review load");
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact keeps GitHub pull request sizes out of the churn totals", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        seedTickets(handle);
+        const withTickets = buildArtifact(handle, TICKET_REFRESH);
+        const withoutTickets = buildArtifact(handle);
+
+        expect(headlineOf(withTickets)).toBe(headlineOf(withoutTickets));
+        expect(sizeOf(withTickets)).toBe(sizeOf(withoutTickets));
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact names a failed refresh in every ticket section", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        seedTickets(handle);
+        const failure: TicketRefreshFailure = {
+            reason: "GitHub GraphQL pullRequests failed with status 503",
+        };
+        const artifact = buildArtifact(handle, { ...TICKET_REFRESH, failure });
+
+        const warnings = artifact
+            .split("\n")
+            .filter((line) => line.startsWith("Warning: the GitHub refresh"));
+        expect(warnings).toHaveLength(4);
+        for (const warning of warnings) {
+            expect(warning).toContain(
+                "may be missing anything that changed since the last complete sync"
+            );
+            expect(warning).toContain("status 503");
+        }
+        expect(artifact).toContain("Team: 2 opened · 2 merged");
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact says so when a failed refresh has no cache behind it", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const failure: TicketRefreshFailure = {
+            reason: "GITHUB_TOKEN was rejected (401)",
+        };
+        const artifact = buildArtifact(handle, { ...TICKET_REFRESH, failure });
+
+        expect(artifact).toContain(
+            "nothing is cached here to fall back on, so the ticket layer has nothing to report"
+        );
+        expect(artifact).toContain("No tickets cached for 2025-06 – 2025-07");
+        expect(artifact).not.toContain("Team: 0 opened");
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact scopes the failure wording to the repos each section reports", async () => {
+    const { handle, dir } = seedMultiRepoFixture();
+    try {
+        seedWebOnlyTickets(handle);
+        const failure: TicketRefreshFailure = { reason: "network unreachable" };
+        const artifact = await buildMultiRepoArtifact(handle, dir, {
+            ...TICKET_REFRESH,
+            failure,
+        });
+
+        const appendix = artifact.slice(
+            artifact.indexOf("## Per-repo appendix")
+        );
+        const webBlock = appendix.slice(
+            appendix.indexOf("### web"),
+            appendix.indexOf("### api")
+        );
+        const apiBlock = appendix.slice(appendix.indexOf("### api"));
+
+        expect(webBlock).toContain(
+            "may be missing anything that changed since the last complete sync"
+        );
+        expect(webBlock).not.toContain(
+            "nothing is cached here to fall back on"
+        );
+        // api has no cached tickets of its own, so it must never claim a cache.
+        expect(apiBlock).toContain("nothing is cached here to fall back on");
+        expect(apiBlock).not.toContain(
+            "may be missing anything that changed since the last complete sync"
+        );
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact carries a late sync floor into the ticket sections", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        seedTickets(handle);
+        seedSyncFloor(handle, "2025-07-01");
+        const artifact = buildArtifact(handle, TICKET_REFRESH);
+
+        const floorNotes = artifact
+            .split("\n")
+            .filter((line) =>
+                line.startsWith(
+                    "Note: the ticket cache was synced from a later date"
+                )
+            );
+        expect(floorNotes).toHaveLength(4);
+        expect(floorNotes[0]).toContain("web-app (2025-07-01)");
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact discloses the sync floor even when the window is empty", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        seedSyncFloor(handle, "2025-07-01");
+        const artifact = buildArtifact(handle, TICKET_REFRESH);
+
+        expect(artifact).toContain("No tickets cached for 2025-06 – 2025-07");
+        expect(artifact).toContain("No reviews cached for 2025-06 – 2025-07");
+        expect(
+            artifact
+                .split("\n")
+                .filter((line) =>
+                    line.startsWith(
+                        "Note: the ticket cache was synced from a later date"
+                    )
+                )
+        ).toHaveLength(4);
     } finally {
         handle.sqlite.close();
         rmSync(dir, { recursive: true, force: true });

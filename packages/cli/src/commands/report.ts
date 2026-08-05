@@ -25,9 +25,19 @@ import {
     resolveWindowStart,
 } from "../pipeline/prepare";
 import { writeRendered } from "../render";
-import { buildReportArtifact, type PerRepoInsight } from "../report/artifact";
+import {
+    buildReportArtifact,
+    type PerRepoInsight,
+    type ReportTickets,
+} from "../report/artifact";
 import { defaultReportPath } from "../report/filename";
 import { formatHeadline } from "../report/headline";
+import {
+    collectTicketInsight,
+    refreshTicketCache,
+    type TicketInsight,
+    type TicketRefresh,
+} from "../report/ticket-layer";
 import type { Granularity } from "../window";
 
 const GRANULARITY_ADVERB: Record<Granularity, string> = {
@@ -69,6 +79,31 @@ function computeContributors(
     });
 }
 
+function collectRepoTickets(
+    db: CacheDatabase,
+    run: ResolvedRun,
+    refresh: TicketRefresh | null,
+    repos: string[]
+): TicketInsight | null {
+    return refresh === null
+        ? null
+        : collectTicketInsight(db, run, refresh, repos);
+}
+
+function buildReportTickets(
+    db: CacheDatabase,
+    run: ResolvedRun,
+    refresh: TicketRefresh | null,
+    repos: string[]
+): ReportTickets | null {
+    return refresh === null
+        ? null
+        : {
+              insight: collectTicketInsight(db, run, refresh, repos),
+              failure: refresh.failure,
+          };
+}
+
 function computeComplexity(
     db: CacheDatabase,
     scope: ComplexityScope
@@ -107,6 +142,7 @@ export async function runReport(
         const repoNames = run.repos.map((repo) => repo.name);
         const { minFileLines, busFactorThreshold } = config.hotspot;
         const start = resolveWindowStart(db, run);
+        const ticketRefresh = await refreshTicketCache(db, run, { now });
 
         const full = aggregateAll(db, {
             window: run.window,
@@ -181,6 +217,7 @@ export async function runReport(
                                   window: run.window,
                                   repos: [{ name: repo, path: repoPath }],
                               }),
+                    tickets: collectRepoTickets(db, run, ticketRefresh, [repo]),
                 };
             })
         );
@@ -194,6 +231,7 @@ export async function runReport(
             timeline,
             perRepoInsights,
             busFactorThreshold,
+            tickets: buildReportTickets(db, run, ticketRefresh, repoNames),
             run,
         });
         const artifactPath = run.out ?? defaultReportPath(run.window, run.tz);
