@@ -1,8 +1,10 @@
 export {
     PER_DEV_METRICS,
+    TICKET_METRICS,
     type MetricDefinition,
     type PerDevMetricKey,
     type ReadFlag,
+    type TicketMetricKey,
 } from "./metrics";
 export type {
     BusFactorRow,
@@ -10,6 +12,7 @@ export type {
     ComplexityAttribution,
     DevComplexityRollup,
     DevPeriodRollup,
+    DevTicketRollup,
     DominantCommitSubtype,
     FullAggregation,
     HotspotRow,
@@ -19,8 +22,16 @@ export type {
     OwnershipAuthorShare,
     OwnershipRow,
     PeriodRollup,
+    PullRequestSizeBucket,
     RepoAggregation,
     SizeTrendPoint,
+    SyncFloor,
+    TicketAggregation,
+    TicketAttribution,
+    TicketCounts,
+    TicketCoverage,
+    TicketFlow,
+    TicketTeamRollup,
     TimelineEvent,
     TimelinePeriod,
 } from "./types";
@@ -36,3 +47,4 @@ export {
     aggregateComplexityAttribution,
     HOTSPOT_CONTRIBUTION_TOP_N,
 } from "./complexity";
+export { aggregateTickets } from "./tickets";

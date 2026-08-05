@@ -67,6 +67,10 @@ function periodIndexOf(periods: Period[], timestamp: number): number {
     return -1;
 }
 
+// Deliberately not aggregate/stats median: this one returns 0 rather than null
+// on an empty span because it is a divisor for the churn-spike multiple, never
+// a reported metric. The shared median must stay null-on-empty for the metrics
+// that are reported, so the two cannot be merged.
 function medianThroughput(perPeriod: PeriodRollup[]): number {
     const values = perPeriod
         .map((row) => row.throughput)

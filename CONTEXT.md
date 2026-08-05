@@ -47,6 +47,21 @@ An auto-detected notable occurrence within a period — a Dominant commit, a chu
 **Dominant commit**:
 A single commit contributing at least 40% of its period's Throughput churn — the flag for restructures, big landings, and mass removals that distort a period even after `-M -C` rename detection.
 
+### Ticket layer
+
+**Ticket**:
+A pull request or an issue. Pull requests are the delivery unit — a merge is throughput; issues are the planning unit — their open and close counts read as scope signal, never as delivery.
+
+**Thrash**:
+Rework visible at the ticket level: reopened tickets and reverted pull requests. Distinct from Throughput churn, which counts lines rather than reversals.
+_Avoid_: churn (unqualified), rework churn (that's the line-lifetime metric)
+
+**Revert match**:
+The rule pairing a pull request titled `Revert "X"` with a cached pull request whose title is X, so the Thrash counts against the reverted work rather than the person who reverted it. Explicitly approximate — GitHub exposes no revert relationship, so an unmatched title counts only at team level.
+
+**Cycle time**:
+Elapsed time from a pull request opening to its merge, reported as a median.
+
 ### Identity
 
 **Canonical author**:

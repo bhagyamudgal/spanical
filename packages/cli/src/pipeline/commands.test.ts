@@ -10,13 +10,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { and, count, eq } from "drizzle-orm";
 import type { TypeOf } from "@drizzle-team/brocli";
+import { tryCatch } from "@spanical/utils";
 import { openCache } from "../cache/open";
 import { sccSnapshots } from "../cache/schema";
 import type { globalFlags } from "../cli/global-flags";
 import { resolveRunConfig, type ResolvedRun } from "../cli/resolve-run";
 import type { SpanicalUserConfig } from "../config/schema";
 import { writeRendered } from "../render";
-import { runChurn, runContributors, runSize } from "./commands";
+import { runChurn, runContributors, runSize, runTickets } from "./commands";
 
 const NOW = new Date("2026-07-19T12:00:00Z");
 const SCC_ON_PATH = Bun.which("scc");
@@ -153,7 +154,10 @@ function commitAt(
     );
 }
 
-function writeConfig(repoPath: string): { cfgDir: string; cfgFile: string } {
+function writeConfig(
+    repoPath: string,
+    tickets?: SpanicalUserConfig["tickets"]
+): { cfgDir: string; cfgFile: string } {
     const cfgDir = mkdtempSync(join(tmpdir(), "spanical-pipe-cfg-"));
     const config: SpanicalUserConfig = {
         repos: [{ name: "web-app", path: repoPath }],
@@ -161,6 +165,7 @@ function writeConfig(repoPath: string): { cfgDir: string; cfgFile: string } {
             "dev-one": { emails: ["dev-one@example.com"] },
             "dev-two": { emails: ["dev-two@example.com"] },
         },
+        tickets,
     };
     const source = `import { defineConfig } from "${import.meta.dir}/../public";\nexport default defineConfig(${JSON.stringify(config, null, 4)});\n`;
     const cfgFile = join(cfgDir, "spanical.config.ts");
@@ -382,6 +387,42 @@ test.skipIf(SCC_ON_PATH === null)(
         }
     }
 );
+
+test("runTickets refuses to run without a token and names the variable", async () => {
+    const repo = initRepo();
+    const { cfgDir, cfgFile } = writeConfig(repo, {
+        source: "github",
+        github: { token: "env:GITHUB_TOKEN", includeIssues: false },
+    });
+    const configuredToken = process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    try {
+        const run = await resolveRun(cfgFile, { since: "2026-06-01" });
+        const { error } = await tryCatch(runTickets(run, cfgFile, NOW));
+
+        expect(error).not.toBeNull();
+        expect(error?.message).toContain("GITHUB_TOKEN is not set");
+        expect(error?.message).not.toContain("at ");
+    } finally {
+        if (configuredToken !== undefined) {
+            process.env.GITHUB_TOKEN = configuredToken;
+        }
+        cleanup([repo, cfgDir]);
+    }
+});
+
+test("runTickets explains an unconfigured ticket layer before asking for a token", async () => {
+    const repo = initRepo();
+    const { cfgDir, cfgFile } = writeConfig(repo);
+    try {
+        const run = await resolveRun(cfgFile, { since: "2026-06-01" });
+        const { error } = await tryCatch(runTickets(run, cfgFile, NOW));
+
+        expect(error?.message).toContain("No tickets section");
+    } finally {
+        cleanup([repo, cfgDir]);
+    }
+});
 
 test("json format returns parseable data that writeRendered persists verbatim", async () => {
     const { repo, cfgDir, cfgFile } = buildFixture();

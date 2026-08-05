@@ -5,10 +5,17 @@ import {
     aggregatePerDev,
     aggregatePerPeriod,
     aggregateSizeTrend,
+    aggregateTickets,
     aggregateTimeline,
 } from "../aggregate";
 import { openCache } from "../cache/open";
 import type { ResolvedRun } from "../cli/resolve-run";
+import {
+    formatUnmappedLoginsWarning,
+    requireTicketsConfig,
+    resolveGithubToken,
+    syncTickets,
+} from "../github";
 import {
     churnPeriodTable,
     devTable,
@@ -16,6 +23,7 @@ import {
     renderContributorsReport,
     renderData,
     renderOwnershipReport,
+    renderTicketsReport,
     sizeTable,
     timelineTable,
 } from "../render";
@@ -164,6 +172,45 @@ export async function runOwnership(
             busFactorThreshold: config.hotspot.busFactorThreshold,
         });
         return renderOwnershipReport(run.format, result);
+    } finally {
+        handle.sqlite.close();
+    }
+}
+
+// The token is resolved before anything else so a missing credential costs no
+// extraction, and the tickets config before that so an unconfigured repo is
+// told what it is actually missing.
+export async function runTickets(
+    run: ResolvedRun,
+    configPath: string | undefined,
+    now: Date
+): Promise<string> {
+    const ticketsConfig = requireTicketsConfig(run.config);
+    const token = resolveGithubToken();
+    await ensureExtracted(run, configPath, now);
+    const handle = openCache({ configPath });
+    try {
+        const sync = await syncTickets(handle.db, run.config, {
+            token,
+            now,
+            isCacheEnabled: run.cache,
+        });
+        if (sync.unmappedLogins.length > 0) {
+            process.stderr.write(
+                `${formatUnmappedLoginsWarning(sync.unmappedLogins)}\n`
+            );
+        }
+        const result = aggregateTickets(handle.db, {
+            window: run.window,
+            repos: repoNames(run),
+            attribution: ticketsConfig.attribution,
+            timezone: run.tz,
+            includeIssues: ticketsConfig.github.includeIssues,
+        });
+        return renderTicketsReport(run.format, result, {
+            window: run.window.label,
+            repos: repoNames(run),
+        });
     } finally {
         handle.sqlite.close();
     }
