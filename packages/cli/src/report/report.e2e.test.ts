@@ -359,10 +359,59 @@ test.skipIf(SCC_ON_PATH === null)(
             expect(content).toContain(
                 "Warning: the GitHub refresh did not finish, so the ticket data here may be missing anything that changed since the last complete sync"
             );
-            expect(content).toContain('has no "origin" remote');
+            // The artifact is kept and shared, so it names the repo the way the
+            // config does and leaves the clone's location to stderr.
+            expect(content).toContain(
+                'Reason (full detail on stderr): Repo "web-app" has no "origin" remote'
+            );
+            expect(content).not.toContain(repo);
             expect(content).toContain(
                 "Note: the ticket cache was synced from a later date than this window starts — web-app (2026-07-01)"
             );
+        } finally {
+            cleanup([repo, cfgDir]);
+        }
+    }
+);
+
+// The two halves of the same failure have different audiences: the operator
+// reading stderr needs to know which clone is misconfigured, the report is kept
+// and shared and must not disclose where anyone's clone lives.
+test.skipIf(SCC_ON_PATH === null)(
+    "a failed refresh keeps the clone path on stderr and out of the artifact",
+    () => {
+        const { repo, cfgFile } = buildFixture(TICKETS_CONFIG);
+        const cfgDir = dirname(cfgFile);
+        const outFile = join(cfgDir, "engineering-report.md");
+        try {
+            const result = Bun.spawnSync(
+                [
+                    "bun",
+                    INDEX_PATH,
+                    "report",
+                    "--config",
+                    cfgFile,
+                    "--since",
+                    "2026-06-01",
+                    "--out",
+                    outFile,
+                ],
+                {
+                    cwd: cfgDir,
+                    env: { ...process.env, GITHUB_TOKEN: "test-token" },
+                }
+            );
+
+            expect(result.exitCode).toBe(0);
+            const stderr = result.stderr.toString();
+            expect(stderr).toContain("the GitHub refresh did not finish");
+            expect(stderr).toContain(repo);
+
+            const content = readFileSync(outFile, "utf8");
+            expect(content).toContain(
+                'Repo "web-app" has no "origin" remote, so its GitHub repository cannot be determined.'
+            );
+            expect(content).not.toContain(repo);
         } finally {
             cleanup([repo, cfgDir]);
         }

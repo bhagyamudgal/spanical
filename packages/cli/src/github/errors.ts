@@ -14,15 +14,21 @@ export const GITHUB_ERROR_CODES = {
 type GitHubErrorCode =
     (typeof GITHUB_ERROR_CODES)[keyof typeof GITHUB_ERROR_CODES];
 
+// The report writes a failed refresh into a Markdown artifact that is kept and
+// shared, so it quotes artifactMessage rather than message: the same cause, minus
+// the local detail — clone paths, remote URLs, response bodies — that is wanted on
+// stderr and nowhere else. Messages carrying no such detail pass through unchanged.
 export class GitHubError extends Error {
     readonly code: GitHubErrorCode;
+    readonly artifactMessage: string;
     constructor(
         code: GitHubErrorCode,
         message: string,
-        options?: { cause?: unknown }
+        options?: { cause?: unknown; artifactMessage?: string }
     ) {
         super(message, options);
         this.name = "GitHubError";
         this.code = code;
+        this.artifactMessage = options?.artifactMessage ?? message;
     }
 }

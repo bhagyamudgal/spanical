@@ -65,7 +65,7 @@ function formatTicketRefreshFailure(
     const outcome = hasCachedTickets
         ? "the GitHub refresh did not finish, so the ticket data here may be missing anything that changed since the last complete sync"
         : "the GitHub refresh did not finish and nothing is cached here to fall back on, so the ticket layer has nothing to report";
-    return `${outcome}. Reason: ${failure.reason}`;
+    return `${outcome}. Reason (full detail on stderr): ${failure.reason}`;
 }
 
 // The report degrades where the tickets and reviews subcommands abort: a failed
@@ -103,7 +103,7 @@ export async function refreshTicketCache(
         process.stderr.write(
             `warning: the GitHub refresh did not finish; the report's ticket sections read the cache instead. Reason: ${error.message}\n`
         );
-        return { ...layer, failure: { reason: error.message } };
+        return { ...layer, failure: { reason: error.artifactMessage } };
     }
 
     if (sync.unmappedLogins.length > 0) {

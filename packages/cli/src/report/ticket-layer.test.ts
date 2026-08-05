@@ -156,7 +156,12 @@ test("refreshTicketCache degrades with the reason when the refresh fails", async
 
         expect(refresh?.attribution).toBe("assignee");
         expect(refresh?.includeIssues).toBe(false);
-        expect(refresh?.failure?.reason).toContain('has no "origin" remote');
+        expect(refresh?.failure?.reason).toContain(
+            'Repo "web-app" has no "origin" remote'
+        );
+        // The reason is bound for the shareable artifact, so it names the repo
+        // the config names and never where that clone sits on disk.
+        expect(refresh?.failure?.reason).not.toContain(repo);
     } finally {
         handle.sqlite.close();
         rmSync(repo, { recursive: true, force: true });

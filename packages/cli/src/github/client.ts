@@ -50,10 +50,12 @@ async function readGraphQLData(
     if (!response.ok) {
         // The status is the useful fact here, so a body that fails mid-stream
         // must not replace it with a stream error.
+        const failure = `GitHub GraphQL ${queryName} failed with status ${response.status}`;
         const { data: body } = await tryCatch(response.text());
         throw new GitHubError(
             GITHUB_ERROR_CODES.REQUEST_FAILED,
-            `GitHub GraphQL ${queryName} failed with status ${response.status}: ${(body ?? "").slice(0, ERROR_BODY_LIMIT)}`
+            `${failure}: ${(body ?? "").slice(0, ERROR_BODY_LIMIT)}`,
+            { artifactMessage: `${failure}.` }
         );
     }
 
