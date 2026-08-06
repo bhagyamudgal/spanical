@@ -1,3 +1,59 @@
+import type { SpanicalConfig } from "../config/schema";
+
+export type TicketAttribution = NonNullable<
+    SpanicalConfig["tickets"]
+>["attribution"];
+
+export type TicketCounts = {
+    opened: number;
+    merged: number;
+    closed: number;
+    reopened: number;
+    reverted: number;
+};
+
+export type TicketFlow = {
+    cycleTimeMedianHours: number | null;
+    pullRequestSizeMedian: number | null;
+};
+
+export type DevTicketRollup = TicketCounts &
+    TicketFlow & {
+        authorId: number;
+        author: string;
+    };
+
+export type TicketTeamRollup = TicketCounts &
+    TicketFlow & {
+        unmatchedReverts: number;
+        cycleTimesDiscarded: number;
+    };
+
+export type PullRequestSizeBucket = {
+    label: string;
+    pullRequests: number;
+    share: number;
+};
+
+export type SyncFloor = { repo: string; since: string };
+
+// What span of ticket history the cache actually holds, and what the counts
+// span: a consumer diffing two runs has to be able to tell a complete window
+// from a partial one, and whether issues share the opened and closed counts.
+export type TicketCoverage = {
+    includeIssues: boolean;
+    lateSyncFloors: SyncFloor[];
+};
+
+export type TicketAggregation = {
+    attribution: TicketAttribution;
+    coverage: TicketCoverage;
+    devs: DevTicketRollup[];
+    team: TicketTeamRollup;
+    pullRequestSizes: PullRequestSizeBucket[];
+    unattributed: TicketCounts;
+};
+
 export type DevPeriodRollup = {
     period: string;
     authorId: number;

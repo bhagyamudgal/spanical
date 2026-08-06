@@ -276,6 +276,24 @@ test("--repo scopes a run started from a repository with no config file", () => 
     }
 });
 
+test("tickets rejects --period rather than accepting it and ignoring it", () => {
+    const repo = initRepo();
+    try {
+        commit(repo, DEV_ONE, { "a.ts": "1\n" }, "feat: a");
+
+        const result = runCli(repo, ["tickets", "--period", "month"]);
+
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("--period is not supported by tickets");
+        // The rejection has to land before the token and config preconditions,
+        // so the flag is named rather than a missing credential.
+        expect(result.stderr).not.toContain("GITHUB_TOKEN");
+        expect(result.stderr).not.toContain("No tickets section");
+    } finally {
+        cleanup([repo]);
+    }
+});
+
 test("adding an authors entry re-attributes an extracted repo without --no-cache", () => {
     const repo = initRepo();
     try {

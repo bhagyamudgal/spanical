@@ -1,13 +1,16 @@
-import { PER_DEV_METRICS } from "../aggregate/metrics";
+import { PER_DEV_METRICS, TICKET_METRICS } from "../aggregate/metrics";
 import type {
     BusFactorRow,
     DevComplexityRollup,
     DevPeriodRollup,
+    DevTicketRollup,
     HotspotRow,
     LanguageSize,
     OwnershipRow,
     PeriodRollup,
+    PullRequestSizeBucket,
     SizeTrendPoint,
+    TicketAttribution,
     TimelinePeriod,
 } from "../aggregate/types";
 import type { TableCell, TableColumn, TableModel } from "./table-model";
@@ -19,7 +22,7 @@ const OWNERS_SEPARATOR = ", ";
 const SCORE_DECIMALS = 3;
 const EVENT_SEPARATOR = "; ";
 
-function toPercent(share: number): string {
+export function toPercent(share: number): string {
     return `${Math.round(share * PERCENT_SCALE)}%`;
 }
 
@@ -83,6 +86,54 @@ export function devTable(
             if (includePeriod) cells.period = row.period;
             return cells;
         }),
+    };
+}
+
+export function ticketDevTable(
+    rows: DevTicketRollup[],
+    attribution: TicketAttribution
+): TableModel {
+    const metricColumns: TableColumn[] = TICKET_METRICS.map((metric) => ({
+        key: metric.key,
+        label: metric.label,
+        align: "right",
+        flag: metric.flag,
+    }));
+
+    return {
+        title: `Ticket flow · credited to the ${attribution}`,
+        columns: [
+            { key: "author", label: "Author", align: "left" },
+            ...metricColumns,
+        ],
+        rows: rows.map((row) => ({
+            author: row.author,
+            opened: row.opened,
+            merged: row.merged,
+            closed: row.closed,
+            reopened: row.reopened,
+            reverted: row.reverted,
+            cycleTimeMedianHours: row.cycleTimeMedianHours,
+            pullRequestSizeMedian: row.pullRequestSizeMedian,
+        })),
+    };
+}
+
+export function pullRequestSizeTable(
+    buckets: PullRequestSizeBucket[]
+): TableModel {
+    return {
+        title: "Merged pull request size (lines changed)",
+        columns: [
+            { key: "label", label: "Lines", align: "left" },
+            { key: "pullRequests", label: "Pull requests", align: "right" },
+            { key: "share", label: "Share", align: "right" },
+        ],
+        rows: buckets.map((bucket) => ({
+            label: bucket.label,
+            pullRequests: bucket.pullRequests,
+            share: toPercent(bucket.share),
+        })),
     };
 }
 
