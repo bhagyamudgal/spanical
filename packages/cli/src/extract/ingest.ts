@@ -6,8 +6,9 @@ import {
     commits,
     extractions,
     fileChanges,
+    fileOwnership,
 } from "../cache/schema";
-import { loadConfig } from "../config/load";
+import { resolveConfig } from "../config/load";
 import type { SpanicalConfig } from "../config/schema";
 import { seedAndResolveAuthors, type AuthorResolver } from "./authors";
 import {
@@ -35,6 +36,37 @@ function dedupeIds(ids: number[]): number[] {
     return [...new Set(ids)];
 }
 
+// Code unit order, not localeCompare: the sort feeds a digest that has to be
+// identical across machines, and collation is locale- and ICU-version dependent.
+function compareCodeUnits(left: string, right: string): number {
+    if (left === right) {
+        return 0;
+    }
+    return left < right ? -1 : 1;
+}
+
+// Every config field that is baked into the cached rows: the whole author entry
+// the commits are attributed through, plus the globs that decide which file
+// changes are stored and which are flagged as migrations.
+function configFingerprint(config: SpanicalConfig): string {
+    const fingerprint = {
+        authors: Object.entries(config.authors)
+            .map(([canonicalName, author]) => ({
+                canonicalName,
+                emails: [...author.emails].sort(compareCodeUnits),
+                github: [...(author.github ?? [])].sort(compareCodeUnits),
+            }))
+            .sort((left, right) =>
+                compareCodeUnits(left.canonicalName, right.canonicalName)
+            ),
+        exclude: [...config.exclude].sort(compareCodeUnits),
+        migrationsPath: config.migrationsPath,
+    };
+    return new Bun.CryptoHasher("sha256")
+        .update(JSON.stringify(fingerprint))
+        .digest("hex");
+}
+
 function deleteRepoRows(db: CacheDatabase, repo: string): void {
     db.delete(commitAuthors)
         .where(
@@ -49,6 +81,9 @@ function deleteRepoRows(db: CacheDatabase, repo: string): void {
         .run();
     db.delete(fileChanges).where(eq(fileChanges.repo, repo)).run();
     db.delete(commits).where(eq(commits.repo, repo)).run();
+    // Ownership is blamed per author id, so it goes stale whenever a re-extraction
+    // re-attributes the repo; it is rebuilt lazily on the next ownership run.
+    db.delete(fileOwnership).where(eq(fileOwnership.repo, repo)).run();
 }
 
 export async function extractRepo(
@@ -61,14 +96,24 @@ export async function extractRepo(
     const branch = await resolveDefaultBranch(repo.path, repo.branch);
     const tip = await getBranchTipSha(repo.path, branch);
     const since = config.since ?? null;
+    const configKey = configFingerprint(config);
 
     if (!opts.noCache) {
         const existing = db
-            .select({ tipSha: extractions.tipSha, since: extractions.since })
+            .select({
+                tipSha: extractions.tipSha,
+                since: extractions.since,
+                configKey: extractions.configKey,
+            })
             .from(extractions)
             .where(eq(extractions.repo, repo.name))
             .get();
-        if (existing && existing.tipSha === tip && existing.since === since) {
+        if (
+            existing &&
+            existing.tipSha === tip &&
+            existing.since === since &&
+            existing.configKey === configKey
+        ) {
             return {
                 repo: repo.name,
                 status: "skipped",
@@ -146,10 +191,17 @@ export async function extractRepo(
 
     const extractedAt = opts.now.getTime();
     db.insert(extractions)
-        .values({ repo: repo.name, branch, tipSha: tip, since, extractedAt })
+        .values({
+            repo: repo.name,
+            branch,
+            tipSha: tip,
+            since,
+            configKey,
+            extractedAt,
+        })
         .onConflictDoUpdate({
             target: extractions.repo,
-            set: { branch, tipSha: tip, since, extractedAt },
+            set: { branch, tipSha: tip, since, configKey, extractedAt },
         })
         .run();
 
@@ -177,17 +229,16 @@ async function runExtraction(
     return { repos, unknownEmails: resolver.unknownEmails() };
 }
 
-export async function extractAll(options: {
-    configPath?: string;
-    cwd?: string;
-    noCache?: boolean;
-    now: Date;
-}): Promise<ExtractionResult> {
+export async function extractWithConfig(
+    config: SpanicalConfig,
+    options: {
+        configPath?: string;
+        cwd?: string;
+        noCache?: boolean;
+        now: Date;
+    }
+): Promise<ExtractionResult> {
     assertGitAvailable();
-    const config = await loadConfig({
-        configPath: options.configPath,
-        cwd: options.cwd,
-    });
     const handle = openCache({
         configPath: options.configPath,
         cwd: options.cwd,
@@ -200,4 +251,17 @@ export async function extractAll(options: {
         throw result.error;
     }
     return result.data;
+}
+
+export async function extractAll(options: {
+    configPath?: string;
+    cwd?: string;
+    noCache?: boolean;
+    now: Date;
+}): Promise<ExtractionResult> {
+    const config = await resolveConfig({
+        configPath: options.configPath,
+        cwd: options.cwd,
+    });
+    return extractWithConfig(config, options);
 }

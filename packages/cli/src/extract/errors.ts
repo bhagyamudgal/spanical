@@ -10,13 +10,17 @@ type ExtractErrorCode =
 
 export class ExtractError extends Error {
     readonly code: ExtractErrorCode;
+    readonly exitCode: number | null;
+    readonly stderr: string | null;
     constructor(
         code: ExtractErrorCode,
         message: string,
-        options?: { cause?: unknown }
+        options?: { cause?: unknown; exitCode?: number; stderr?: string }
     ) {
         super(message, options);
         this.name = "ExtractError";
         this.code = code;
+        this.exitCode = options?.exitCode ?? null;
+        this.stderr = options?.stderr ?? null;
     }
 }

@@ -9,7 +9,6 @@ import {
 } from "../aggregate";
 import { openCache } from "../cache/open";
 import type { ResolvedRun } from "../cli/resolve-run";
-import { loadConfig } from "../config/load";
 import {
     churnPeriodTable,
     devTable,
@@ -29,18 +28,24 @@ import {
     resolveWindowStart,
 } from "./prepare";
 
+function repoNames(run: ResolvedRun): string[] {
+    return run.repos.map((repo) => repo.name);
+}
+
 export async function runChurn(
     run: ResolvedRun,
     configPath: string | undefined,
     now: Date
 ): Promise<string> {
-    await ensureExtracted(configPath, run.cache, now);
+    await ensureExtracted(run, configPath, now);
     const handle = openCache({ configPath });
+    const repos = repoNames(run);
     try {
         if (run.by === "dev") {
             const rows = aggregatePerDev(handle.db, {
                 periods: run.window.periods,
                 timezone: run.tz,
+                repos,
             });
             return renderData(
                 run.format,
@@ -50,6 +55,7 @@ export async function runChurn(
         }
         const rows = aggregatePerPeriod(handle.db, {
             periods: run.window.periods,
+            repos,
         });
         return renderData(run.format, churnPeriodTable(rows), rows);
     } finally {
@@ -62,7 +68,7 @@ export async function runTimeline(
     configPath: string | undefined,
     now: Date
 ): Promise<string> {
-    await ensureExtracted(configPath, run.cache, now);
+    await ensureExtracted(run, configPath, now);
     const handle = openCache({ configPath });
     try {
         const rows = await aggregateTimeline(handle.db, {
@@ -83,9 +89,10 @@ export async function runContributors(
     configPath: string | undefined,
     now: Date
 ): Promise<string> {
-    await ensureExtracted(configPath, run.cache, now);
-    const config = await loadConfig({ configPath });
+    await ensureExtracted(run, configPath, now);
+    const { config } = run;
     const handle = openCache({ configPath });
+    const repos = repoNames(run);
     try {
         await ensureMonthlySnapshots(handle.db, run);
         await ensureOwnership(handle.db, run, config);
@@ -102,11 +109,12 @@ export async function runContributors(
         const contributors = aggregatePerDev(handle.db, {
             periods: [{ label: run.window.label, start, end: run.window.end }],
             timezone: run.tz,
+            repos,
         });
         const attribution = aggregateComplexityAttribution(handle.db, {
             window: run.window,
             windowStart: start,
-            repos: run.repos.map((repo) => repo.name),
+            repos,
             timezone: run.tz,
             minFileLines: config.hotspot.minFileLines,
             busFactorThreshold: config.hotspot.busFactorThreshold,
@@ -129,11 +137,11 @@ export async function runSize(
     configPath: string | undefined,
     now: Date
 ): Promise<string> {
-    await ensureExtracted(configPath, run.cache, now);
+    await ensureExtracted(run, configPath, now);
     const handle = openCache({ configPath });
     try {
         await ensureMonthlySnapshots(handle.db, run);
-        const rows = aggregateSizeTrend(handle.db, {});
+        const rows = aggregateSizeTrend(handle.db, { repos: repoNames(run) });
         return renderData(run.format, sizeTable(rows), rows);
     } finally {
         handle.sqlite.close();
@@ -145,16 +153,14 @@ export async function runOwnership(
     configPath: string | undefined,
     now: Date
 ): Promise<string> {
-    const [config] = await Promise.all([
-        loadConfig({ configPath }),
-        ensureExtracted(configPath, run.cache, now),
-    ]);
+    await ensureExtracted(run, configPath, now);
+    const { config } = run;
     const handle = openCache({ configPath });
     try {
         await ensureMonthlySnapshots(handle.db, run);
         await ensureOwnership(handle.db, run, config);
         const result = aggregateOwnership(handle.db, {
-            repos: run.repos.map((repo) => repo.name),
+            repos: repoNames(run),
             busFactorThreshold: config.hotspot.busFactorThreshold,
         });
         return renderOwnershipReport(run.format, result);
@@ -168,8 +174,8 @@ export async function runHotspots(
     configPath: string | undefined,
     now: Date
 ): Promise<string> {
-    await ensureExtracted(configPath, run.cache, now);
-    const config = await loadConfig({ configPath });
+    await ensureExtracted(run, configPath, now);
+    const { config } = run;
     const handle = openCache({ configPath });
     try {
         await ensureMonthlySnapshots(handle.db, run);
@@ -177,7 +183,7 @@ export async function runHotspots(
         const windowEndShas = await ensureWindowEndSnapshot(handle.db, run);
         const rows = aggregateHotspots(handle.db, {
             window: run.window,
-            repos: run.repos.map((repo) => repo.name),
+            repos: repoNames(run),
             minFileLines: config.hotspot.minFileLines,
             busFactorThreshold: config.hotspot.busFactorThreshold,
             windowEndShas,

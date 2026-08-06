@@ -13,6 +13,7 @@ export { EXTRACT_ERROR_CODES, ExtractError } from "./errors";
 export {
     extractAll,
     extractRepo,
+    extractWithConfig,
     type ExtractionResult,
     type RepoExtraction,
 } from "./ingest";
