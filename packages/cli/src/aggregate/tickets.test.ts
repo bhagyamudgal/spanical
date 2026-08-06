@@ -90,6 +90,17 @@ function seedAuthors(handle: Handle): void {
     }
 }
 
+// Mapping the bot login is what makes the bot rule load-bearing: an unmapped
+// bot is kept off the per-dev rows by having no author at all, so only a mapped
+// one can prove the rule is what excludes it.
+function mapBotToAuthor(handle: Handle): void {
+    upsertGithubLogin(
+        handle.db,
+        BOT.login,
+        upsertAuthor(handle.db, "renovate")
+    );
+}
+
 function ticketRow(options: {
     id: string;
     number: number;
@@ -317,6 +328,27 @@ test("bot-credited tickets stay out of every per-dev row but count for the team"
             "dev-three",
             "dev-two",
         ]);
+        expect(team.merged).toBe(3);
+        expect(unattributed.opened).toBe(1);
+        expect(unattributed.merged).toBe(1);
+    });
+});
+
+test("a bot mapped to an author is still kept out of the per-dev rows", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        mapBotToAuthor(handle);
+        seedTickets(handle, FIXTURE);
+
+        const { devs, team, unattributed } = aggregate(handle, "author");
+        expect(devs.map((dev) => dev.author)).toEqual([
+            "dev-one",
+            "dev-three",
+            "dev-two",
+        ]);
+        // The other half of the asymmetry: the same ticket the per-dev rows
+        // refuse still counts for the team, and lands in the unattributed gap.
+        expect(team.opened).toBe(5);
         expect(team.merged).toBe(3);
         expect(unattributed.opened).toBe(1);
         expect(unattributed.merged).toBe(1);
@@ -747,6 +779,23 @@ test("a revert charged to nobody still reaches the report", () => {
         const markdown = render(result, "md");
         expect(markdown).toContain("1 reverted");
         expect(markdown).toContain("no per-dev row does");
+    });
+});
+
+test("a revert of a mapped bot's work is charged to nobody, not to the bot", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        mapBotToAuthor(handle);
+        seedTickets(handle, REVERTED_BOT_WORK);
+        const result = aggregate(handle, "author");
+
+        // The revert tally credits an author id directly, so a mapped bot is
+        // the one case where the thrash could open a per-dev row of its own.
+        expect(result.devs.map((dev) => dev.author)).toEqual(["dev-one"]);
+        expect(result.team.reverted).toBe(1);
+        expect(result.team.unmatchedReverts).toBe(0);
+        expect(result.devs.every((dev) => dev.reverted === 0)).toBe(true);
+        expect(result.unattributed.reverted).toBe(1);
     });
 });
 
