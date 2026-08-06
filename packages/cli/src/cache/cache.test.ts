@@ -63,19 +63,27 @@ test("each table's columns match the Drizzle schema and expected indices exist",
     try {
         const handle = openCache({ cwd: dir });
 
+        // Nullability is compared too, because a column the DDL leaves nullable
+        // while Drizzle calls it notNull is drift the type-checker cannot see.
+        // A primary-key column is implicitly NOT NULL in SQLite, so PRAGMA
+        // reports notnull 0 for it and the two sides are folded into one flag.
         for (const table of cacheTables) {
             const tableName = getTableName(table);
             const actualColumns = handle.sqlite
-                .query<{ name: string; type: string }, []>(
-                    `PRAGMA table_info(${tableName})`
-                )
+                .query<
+                    { name: string; type: string; notnull: number; pk: number },
+                    []
+                >(`PRAGMA table_info(${tableName})`)
                 .all()
-                .map((row) => `${row.name}:${row.type.toUpperCase()}`)
+                .map(
+                    (row) =>
+                        `${row.name}:${row.type.toUpperCase()}:${row.notnull === 1 || row.pk > 0}`
+                )
                 .sort();
             const expectedColumns = Object.values(getTableColumns(table))
                 .map(
                     (column) =>
-                        `${column.name}:${column.getSQLType().toUpperCase()}`
+                        `${column.name}:${column.getSQLType().toUpperCase()}:${column.notNull || column.primary}`
                 )
                 .sort();
             expect(actualColumns).toEqual(expectedColumns);

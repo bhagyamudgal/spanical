@@ -4,6 +4,8 @@ A local-first code-insights CLI that reads git history and tells the story of a 
 
 ## Language
 
+### Code layer
+
 **Hotspot**:
 A file that scores high on both change frequency and complexity at once — the refactor shortlist. Neither axis alone qualifies a file; the _product_ of the two is the signal.
 _Avoid_: risky file, problem file
@@ -44,3 +46,17 @@ An auto-detected notable occurrence within a period — a Dominant commit, a chu
 
 **Dominant commit**:
 A single commit contributing at least 40% of its period's Throughput churn — the flag for restructures, big landings, and mass removals that distort a period even after `-M -C` rename detection.
+
+### Identity
+
+**Canonical author**:
+The single identity a human resolves to across both layers, holding their git emails and GitHub logins. Every per-dev number is counted against this, never against a raw email or login.
+
+**Identity bridge**:
+The resolution of a git email and a GitHub login to one Canonical author. Without it the code layer and the ticket layer credit the same person twice.
+
+**Provisional author**:
+A Canonical author the tool minted itself from an unrecognized git email or GitHub login rather than from a configured `authors` entry. Always surfaced as a warning — it may be a duplicate of someone already known.
+
+**Auto-bridged identity**:
+A git-to-GitHub link inferred from a `users.noreply.github.com` address, which embeds the GitHub login. A configured `authors` entry always overrides it.

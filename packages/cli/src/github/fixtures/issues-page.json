@@ -1,0 +1,110 @@
+{
+    "rateLimit": {
+        "cost": 3,
+        "remaining": 4912,
+        "resetAt": "2026-07-28T22:54:56Z"
+    },
+    "repository": {
+        "issues": {
+            "pageInfo": {
+                "hasNextPage": true,
+                "endCursor": "CURSOR_1"
+            },
+            "nodes": [
+                {
+                    "id": "NODE_73",
+                    "number": 36235,
+                    "title": "a ticket title",
+                    "state": "OPEN",
+                    "createdAt": "2026-07-28T15:55:46Z",
+                    "updatedAt": "2026-07-28T22:28:44Z",
+                    "closedAt": null,
+                    "author": {
+                        "login": "person-6",
+                        "typename": "User"
+                    },
+                    "assignees": {
+                        "nodes": []
+                    },
+                    "reopened": {
+                        "filteredCount": 0
+                    },
+                    "closed": {
+                        "nodes": []
+                    }
+                },
+                {
+                    "id": "NODE_74",
+                    "number": 36263,
+                    "title": "a ticket title",
+                    "state": "OPEN",
+                    "createdAt": "2026-07-28T22:17:11Z",
+                    "updatedAt": "2026-07-28T22:26:12Z",
+                    "closedAt": null,
+                    "author": {
+                        "login": "person-7",
+                        "typename": "User"
+                    },
+                    "assignees": {
+                        "nodes": []
+                    },
+                    "reopened": {
+                        "filteredCount": 0
+                    },
+                    "closed": {
+                        "nodes": []
+                    }
+                },
+                {
+                    "id": "NODE_75",
+                    "number": 7100,
+                    "title": "a ticket title",
+                    "state": "OPEN",
+                    "createdAt": "2023-11-14T00:37:47Z",
+                    "updatedAt": "2026-07-28T18:32:19Z",
+                    "closedAt": null,
+                    "author": {
+                        "login": "person-8",
+                        "typename": "User"
+                    },
+                    "assignees": {
+                        "nodes": [
+                            {
+                                "login": "person-9",
+                                "typename": "User"
+                            }
+                        ]
+                    },
+                    "reopened": {
+                        "filteredCount": 0
+                    },
+                    "closed": {
+                        "nodes": []
+                    }
+                },
+                {
+                    "id": "NODE_76",
+                    "number": 36242,
+                    "title": "a ticket title",
+                    "state": "OPEN",
+                    "createdAt": "2026-07-28T17:04:36Z",
+                    "updatedAt": "2026-07-28T17:53:38Z",
+                    "closedAt": null,
+                    "author": {
+                        "login": "person-10",
+                        "typename": "User"
+                    },
+                    "assignees": {
+                        "nodes": []
+                    },
+                    "reopened": {
+                        "filteredCount": 0
+                    },
+                    "closed": {
+                        "nodes": []
+                    }
+                }
+            ]
+        }
+    }
+}

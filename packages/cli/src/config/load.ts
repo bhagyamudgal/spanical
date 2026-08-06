@@ -136,6 +136,23 @@ async function reposFromWorkingDirectory(cwd: string): Promise<RepoList> {
     return [{ name: basename(root), path: root }];
 }
 
+// --repo picks which directories a run covers; it does not redeclare them. The
+// settings config already carries for the same directory (branch, github) have
+// to survive, or --repo on a fork would sync a different GitHub repository than
+// the same run without it.
+function carryConfiguredSettings(
+    configured: RepoList,
+    selected: RepoList,
+    cwd: string
+): RepoList {
+    return selected.map((repo) => {
+        const match = configured.find(
+            (entry) => resolve(cwd, entry.path) === resolve(cwd, repo.path)
+        );
+        return match === undefined ? repo : { ...match, ...repo };
+    });
+}
+
 export async function resolveConfig(
     options: { configPath?: string; cwd?: string; repos?: RepoList } = {}
 ): Promise<SpanicalConfig> {
@@ -146,7 +163,14 @@ export async function resolveConfig(
         const config = await loadConfig(options);
         return options.repos === undefined
             ? config
-            : { ...config, repos: options.repos };
+            : {
+                  ...config,
+                  repos: carryConfiguredSettings(
+                      config.repos,
+                      options.repos,
+                      options.cwd ?? process.cwd()
+                  ),
+              };
     }
     const cwd = options.cwd ?? process.cwd();
     const repos = options.repos ?? (await reposFromWorkingDirectory(cwd));

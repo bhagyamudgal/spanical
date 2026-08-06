@@ -59,6 +59,39 @@ test("--repo replaces config repos and derives names from basenames", async () =
     }
 });
 
+test("--repo keeps the per-repo settings config declares for the same directory", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-run-"));
+    writeFileSync(
+        join(dir, "spanical.config.ts"),
+        `import { defineConfig } from "${import.meta.dir}/../public";
+export default defineConfig({
+    repos: [
+        { name: "web-app", path: "../web-app", branch: "develop", github: "acme/web-fork" },
+        { name: "api", path: "../api" },
+    ],
+});`
+    );
+    try {
+        const run = await resolveRunConfig({
+            flags: { repo: "../web-app" },
+            cwd: dir,
+            now: NOW,
+        });
+        // Dropping github would send the ticket sync to a different GitHub
+        // repository than the same run without --repo.
+        expect(run.repos).toEqual([
+            {
+                name: "web-app",
+                path: "../web-app",
+                branch: "develop",
+                github: "acme/web-fork",
+            },
+        ]);
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test("--repo . takes its name from the working directory, not the literal dot", async () => {
     const dir = writeFixture();
     try {

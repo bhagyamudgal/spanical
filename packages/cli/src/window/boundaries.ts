@@ -43,7 +43,7 @@ const SUBTRACT_BY_UNIT: Record<
     y: subYears,
 };
 
-function toZonedStartOfDay(dateString: string, timezone: string): TZDate {
+export function zonedStartOfDay(dateString: string, timezone: string): TZDate {
     const [year, month, day] = dateString.split(DATE_PART_SEPARATOR);
     return new TZDate(
         Number(year),
@@ -113,11 +113,11 @@ export function computeBounds(
                 start:
                     request.since === null
                         ? null
-                        : toZonedStartOfDay(request.since, timezone),
+                        : zonedStartOfDay(request.since, timezone),
                 end:
                     request.until === null
                         ? now
-                        : endOfDay(toZonedStartOfDay(request.until, timezone), {
+                        : endOfDay(zonedStartOfDay(request.until, timezone), {
                               in: tz(timezone),
                           }),
             };

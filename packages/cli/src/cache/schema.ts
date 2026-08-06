@@ -103,6 +103,65 @@ export const fileOwnership = sqliteTable(
     ]
 );
 
+// login carries COLLATE NOCASE in ddl.ts, which Drizzle cannot express: GitHub
+// logins are case-insensitive, so the read-time join must be too.
+export const authorGithubLogins = sqliteTable("author_github_logins", {
+    login: text("login").primaryKey(),
+    authorId: integer("author_id")
+        .notNull()
+        .references(() => authors.id),
+});
+
+// Issues carry their own watermark so turning includeIssues on backfills them
+// without forcing a pull-request re-backfill that has already been paid for.
+export const githubSyncs = sqliteTable("github_syncs", {
+    repo: text("repo").primaryKey(),
+    slug: text("slug").notNull(),
+    since: text("since"),
+    syncedThrough: integer("synced_through").notNull(),
+    issuesSyncedThrough: integer("issues_synced_through").notNull(),
+    syncedAt: integer("synced_at").notNull(),
+});
+
+// Actors are stored as raw GitHub logins and resolved to a canonical author
+// through author_github_logins at query time, so re-mapping an identity never
+// costs an API call. See docs/adr/0001.
+export const tickets = sqliteTable("tickets", {
+    nodeId: text("node_id").primaryKey(),
+    repo: text("repo").notNull(),
+    kind: text("kind").notNull(),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    author: text("author"),
+    authorIsBot: integer("author_is_bot", { mode: "boolean" }).notNull(),
+    assignee: text("assignee"),
+    assigneeIsBot: integer("assignee_is_bot", { mode: "boolean" }).notNull(),
+    closedBy: text("closed_by"),
+    closedByIsBot: integer("closed_by_is_bot", { mode: "boolean" }).notNull(),
+    createdAt: integer("created_at").notNull(),
+    closedAt: integer("closed_at"),
+    mergedAt: integer("merged_at"),
+    updatedAt: integer("updated_at").notNull(),
+    state: text("state").notNull(),
+    reopenedCount: integer("reopened_count").notNull(),
+    additions: integer("additions"),
+    deletions: integer("deletions"),
+});
+
+// requested_at is null when no review-request event exists, which is what the
+// "created" latency basis is derived from; it is never stored as its own column.
+export const reviews = sqliteTable("reviews", {
+    nodeId: text("node_id").primaryKey(),
+    prNodeId: text("pr_node_id")
+        .notNull()
+        .references(() => tickets.nodeId),
+    reviewer: text("reviewer"),
+    reviewerIsBot: integer("reviewer_is_bot", { mode: "boolean" }).notNull(),
+    submittedAt: integer("submitted_at"),
+    requestedAt: integer("requested_at"),
+    state: text("state").notNull(),
+});
+
 export const cacheSchema = {
     authors,
     authorAliases,
@@ -112,6 +171,10 @@ export const cacheSchema = {
     sccSnapshots,
     extractions,
     fileOwnership,
+    authorGithubLogins,
+    githubSyncs,
+    tickets,
+    reviews,
 };
 
 export const cacheTables: SQLiteTable[] = [
@@ -123,6 +186,10 @@ export const cacheTables: SQLiteTable[] = [
     sccSnapshots,
     extractions,
     fileOwnership,
+    authorGithubLogins,
+    githubSyncs,
+    tickets,
+    reviews,
 ];
 
 export const CACHE_TABLE_NAMES = cacheTables.map((table) =>

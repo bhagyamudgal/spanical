@@ -2,6 +2,10 @@
 // second representation of schema.ts's tables. The introspection test in
 // cache.test.ts guards the two against drift by comparing PRAGMA table_info
 // against the Drizzle column definitions.
+//
+// PRAGMA foreign_keys is never enabled, so every REFERENCES clause below is
+// documentation: nothing cascades and nothing is enforced. Code that deletes a
+// parent row has to remove its children itself.
 
 export const CREATE_TABLE_STATEMENTS = [
     `CREATE TABLE authors (
@@ -63,6 +67,48 @@ export const CREATE_TABLE_STATEMENTS = [
         surviving_lines INTEGER NOT NULL,
         PRIMARY KEY (repo, head_sha, path, author_id)
     );`,
+    `CREATE TABLE author_github_logins (
+        login TEXT COLLATE NOCASE PRIMARY KEY,
+        author_id INTEGER NOT NULL REFERENCES authors(id)
+    );`,
+    `CREATE TABLE github_syncs (
+        repo TEXT PRIMARY KEY,
+        slug TEXT NOT NULL,
+        since TEXT,
+        synced_through INTEGER NOT NULL,
+        issues_synced_through INTEGER NOT NULL,
+        synced_at INTEGER NOT NULL
+    );`,
+    `CREATE TABLE tickets (
+        node_id TEXT PRIMARY KEY,
+        repo TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        author TEXT,
+        author_is_bot INTEGER NOT NULL,
+        assignee TEXT,
+        assignee_is_bot INTEGER NOT NULL,
+        closed_by TEXT,
+        closed_by_is_bot INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        closed_at INTEGER,
+        merged_at INTEGER,
+        updated_at INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        reopened_count INTEGER NOT NULL,
+        additions INTEGER,
+        deletions INTEGER
+    );`,
+    `CREATE TABLE reviews (
+        node_id TEXT PRIMARY KEY,
+        pr_node_id TEXT NOT NULL REFERENCES tickets(node_id),
+        reviewer TEXT,
+        reviewer_is_bot INTEGER NOT NULL,
+        submitted_at INTEGER,
+        requested_at INTEGER,
+        state TEXT NOT NULL
+    );`,
 ];
 
 const INDEX_DEFINITIONS = [
@@ -90,13 +136,54 @@ const INDEX_DEFINITIONS = [
         table: "file_ownership",
         columns: ["repo", "head_sha"],
     },
+    {
+        name: "idx_author_github_logins_author_id",
+        table: "author_github_logins",
+        columns: ["author_id"],
+    },
+    {
+        name: "idx_reviews_pr_node_id",
+        table: "reviews",
+        columns: ["pr_node_id"],
+    },
 ] as const;
 
-export const CACHE_INDEX_NAMES = INDEX_DEFINITIONS.map(
-    (definition) => definition.name
-);
+// (repo, kind, number) is a ticket's natural key. GitHub is migrating to a new
+// global-ID format, so a re-issued node_id must collide loudly here instead of
+// quietly inserting a duplicate that inflates every count. Its repo prefix also
+// serves the repo-scoped lookups, so no separate repo index is needed.
+const UNIQUE_INDEX_DEFINITIONS = [
+    {
+        name: "idx_tickets_repo_kind_number",
+        table: "tickets",
+        columns: ["repo", "kind", "number"],
+    },
+] as const;
 
-export const CREATE_INDEX_STATEMENTS = INDEX_DEFINITIONS.map(
-    (definition) =>
-        `CREATE INDEX ${definition.name} ON ${definition.table} (${definition.columns.join(", ")});`
-);
+type IndexDefinition = {
+    name: string;
+    table: string;
+    columns: readonly string[];
+};
+
+function createIndexStatement(
+    definition: IndexDefinition,
+    isUnique: boolean
+): string {
+    const uniqueKeyword = isUnique ? "UNIQUE " : "";
+    return `CREATE ${uniqueKeyword}INDEX ${definition.name} ON ${definition.table} (${definition.columns.join(", ")});`;
+}
+
+export const CACHE_INDEX_NAMES = [
+    ...INDEX_DEFINITIONS,
+    ...UNIQUE_INDEX_DEFINITIONS,
+].map((definition) => definition.name);
+
+export const CREATE_INDEX_STATEMENTS = [
+    ...INDEX_DEFINITIONS.map((definition) =>
+        createIndexStatement(definition, false)
+    ),
+    ...UNIQUE_INDEX_DEFINITIONS.map((definition) =>
+        createIndexStatement(definition, true)
+    ),
+];
