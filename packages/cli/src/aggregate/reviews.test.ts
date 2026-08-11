@@ -539,6 +539,83 @@ test("a self-review under a different login casing is still a self-review", () =
     });
 });
 
+test("an unmapped self-review still falls back to the raw login", () => {
+    withCache((handle) => {
+        seed(
+            handle,
+            [
+                pullRequest({
+                    id: "pr-1",
+                    number: 1,
+                    author: { login: "Dev-One-GH" },
+                    createdAt: "2026-07-01T00:00:00Z",
+                    mergedAt: "2026-07-02T00:00:00Z",
+                }),
+            ],
+            [
+                review({
+                    id: "review-1",
+                    pullRequest: "pr-1",
+                    reviewer: DEV_ONE,
+                    submittedAt: "2026-07-01T06:00:00Z",
+                }),
+            ]
+        );
+
+        const result = aggregate(handle);
+        expect(result.team.reviewsGiven).toBe(0);
+        expect(result.coverage.pullRequestsReviewed).toBe(0);
+        expect(result.excluded.selfReviews).toBe(1);
+    });
+});
+
+test("a self-review under a mapped alias is still a self-review", () => {
+    withCache((handle) => {
+        seedAuthors(handle);
+        upsertGithubLogin(
+            handle.db,
+            "dev-one-alt-gh",
+            upsertAuthor(handle.db, "dev-one")
+        );
+        seed(
+            handle,
+            [
+                pullRequest({
+                    id: "pr-1",
+                    number: 1,
+                    author: DEV_ONE,
+                    createdAt: "2026-07-01T00:00:00Z",
+                    mergedAt: "2026-07-02T00:00:00Z",
+                }),
+            ],
+            [
+                review({
+                    id: "review-1",
+                    pullRequest: "pr-1",
+                    reviewer: { login: "dev-one-alt-gh" },
+                    submittedAt: "2026-07-01T06:00:00Z",
+                }),
+            ]
+        );
+
+        const result = aggregate(handle);
+        expect(result.devs).toEqual([]);
+        expect(result.team).toMatchObject({
+            reviewsGiven: 0,
+            requestedSamples: 0,
+            createdSamples: 0,
+            latencyMedianHours: null,
+        });
+        expect(result.coverage).toEqual({
+            pullRequestsMerged: 1,
+            pullRequestsReviewed: 0,
+            pullRequestsUnmerged: 0,
+            share: 0,
+        });
+        expect(result.excluded.selfReviews).toBe(1);
+    });
+});
+
 test("a pending review is not counted until it is submitted", () => {
     withCache((handle) => {
         seedAuthors(handle);
@@ -943,10 +1020,10 @@ test("markdown carries the read flags, the basis mix and the coverage line", () 
         expect(markdown).toContain("| Author | Reviews given (signal) |");
         expect(markdown).toContain("Latency basis (context)");
         expect(markdown).toContain(
-            "| dev-two | 1 | 4 | 1 requested, 0 created"
+            "| dev-two | 1 | 4 | 1 requested, 0 created, 0% fallback"
         );
         expect(markdown).toContain(
-            "Team: 3 reviews given · review latency 7h median · latency basis 1 requested, 1 created"
+            "Team: 3 reviews given · review latency 7h median · latency basis 1 requested, 1 created, 50% fallback"
         );
         expect(markdown).toContain(
             "Review coverage: 3 of 4 merged pull request(s) carry a review (75%)"
@@ -971,13 +1048,13 @@ test("the terminal table prints each dev's numbers under its own column", () => 
             "dev-two",
             "1",
             "4",
-            "1 requested, 0 created",
+            "1 requested, 0 created, 0% fallback",
         ]);
         expect(tableCells(table, "dev-three")).toEqual([
             "dev-three",
             "1",
             "10",
-            "0 requested, 1 created",
+            "0 requested, 1 created, 100% fallback",
         ]);
         expect(table).toContain("Review coverage: 3 of 4");
     });

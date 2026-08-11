@@ -30,7 +30,21 @@ const UNBOUNDED_START = 0;
 // nothing — and only on someone else's pull request. Who wrote the pull request
 // decides that, never the configured attribution mode: reviewing work you are
 // merely credited for is still a review you gave someone.
-const NOT_A_SELF_REVIEW = sql`(${reviews.reviewer} is null or ${tickets.author} is null or ${reviews.reviewer} <> ${tickets.author} collate nocase)`;
+const NOT_A_SELF_REVIEW = sql`(
+    ${reviews.reviewer} is null
+    or ${tickets.author} is null
+    or (
+        ${reviews.reviewer} <> ${tickets.author} collate nocase
+        and not exists (
+            select 1
+            from ${authorGithubLogins} reviewer_logins
+            inner join ${authorGithubLogins} pull_request_author_logins
+                on pull_request_author_logins.author_id = reviewer_logins.author_id
+            where reviewer_logins.login = ${reviews.reviewer}
+                and pull_request_author_logins.login = ${tickets.author}
+        )
+    )
+)`;
 const COUNTED_REVIEW = and(isNotNull(reviews.submittedAt), NOT_A_SELF_REVIEW);
 
 type ReviewOptions = {

@@ -35,10 +35,10 @@ export function toPercent(share: number): string {
 // The basis mix travels with every latency figure, so a median built mostly
 // from the "created" fallback can never read as one built from real requests.
 export function formatLatencyBasis(latency: ReviewLatency): string | null {
-    if (latency.requestedSamples + latency.createdSamples === 0) {
+    if (latency.fallbackShare === null) {
         return null;
     }
-    return `${latency.requestedSamples} requested, ${latency.createdSamples} created`;
+    return `${latency.requestedSamples} requested, ${latency.createdSamples} created, ${toPercent(latency.fallbackShare)} fallback`;
 }
 
 export function churnPeriodTable(rows: PeriodRollup[]): TableModel {
