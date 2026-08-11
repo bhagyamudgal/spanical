@@ -7,6 +7,7 @@ import {
     aggregateOwnership,
     aggregatePerDev,
     aggregateTimeline,
+    reposWithoutWindowEndSnapshot,
 } from "../aggregate";
 import type {
     ComplexityAttribution,
@@ -21,7 +22,6 @@ import {
     ensureExtracted,
     ensureMonthlySnapshots,
     ensureOwnership,
-    ensureWindowEndSnapshot,
     resolveWindowStart,
 } from "../pipeline/prepare";
 import { writeRendered } from "../render";
@@ -134,9 +134,12 @@ export async function runReport(
     const handle = openCache({ configPath });
     try {
         const { db } = handle;
-        await ensureMonthlySnapshots(db, run);
+        const {
+            months: sizeMonths,
+            snapshots: sizeSnapshots,
+            windowEndShas,
+        } = await ensureMonthlySnapshots(db, run);
         await ensureOwnership(db, run, config);
-        const windowEndShas = await ensureWindowEndSnapshot(db, run);
         const baselineShas = await ensureBaselineSnapshots(db, run);
 
         const repoNames = run.repos.map((repo) => repo.name);
@@ -148,6 +151,8 @@ export async function runReport(
             window: run.window,
             timezone: run.tz,
             repos: repoNames,
+            sizeMonths,
+            sizeSnapshots,
         });
         const contributors = computeContributors(db, run, start, repoNames);
         const complexity = computeComplexity(db, {
@@ -229,7 +234,9 @@ export async function runReport(
             complexity,
             timeline,
             perRepoInsights,
+            minFileLines,
             busFactorThreshold,
+            windowEndShas,
             tickets: buildReportTickets(db, run, ticketRefresh, repoNames),
             run,
         });
@@ -240,6 +247,12 @@ export async function runReport(
             granularity: run.window.granularity,
             hotspots,
             ownership,
+            minFileLines,
+            unmeasuredRepos: reposWithoutWindowEndSnapshot(
+                repoNames,
+                windowEndShas
+            ),
+            repoCount: repoNames.length,
             busFactorThreshold,
         });
         const terminal = `${formatRunHeader(run)}\n\n${headline}\n\nFull report -> ${artifactPath}`;

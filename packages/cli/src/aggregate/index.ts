@@ -51,7 +51,7 @@ export { aggregateSummary } from "./summary";
 export { aggregateTimeline } from "./timeline";
 export { aggregateAll } from "./aggregate";
 export { aggregateOwnership } from "./ownership";
-export { aggregateHotspots } from "./hotspots";
+export { aggregateHotspots, reposWithoutWindowEndSnapshot } from "./hotspots";
 export {
     aggregateComplexityAttribution,
     HOTSPOT_CONTRIBUTION_TOP_N,

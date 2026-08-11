@@ -12,13 +12,15 @@ import { runScc } from "./run";
 const SHALLOW_TRUE = "true";
 const SNAPSHOT_INSERT_BATCH_SIZE = 1000;
 
-type SnapshotStatus = "inserted" | "skipped" | "no-commit";
+export type SnapshotSelection =
+    | { month: string; sha: null; status: "no-commit" }
+    | { month: string; sha: string; status: "measured" | "empty" };
 
 export type SnapshotBoundary = { month: string; end: Date };
 
 export type SnapshotResult = {
     repo: string;
-    snapshots: { month: string; sha: string; status: SnapshotStatus }[];
+    snapshots: SnapshotSelection[];
 };
 
 type RepoRef = { name: string; path: string; branch?: string };
@@ -62,11 +64,14 @@ export async function snapshotSha(
 }
 
 function staleBoundaryFilter(repo: string, month: string, sha: string) {
+    return and(boundaryFilter(repo, month), ne(sccSnapshots.sha, sha));
+}
+
+function boundaryFilter(repo: string, month: string) {
     return and(
         eq(sccSnapshots.repo, repo),
         eq(sccSnapshots.month, month),
-        eq(sccSnapshots.isBoundary, true),
-        ne(sccSnapshots.sha, sha)
+        eq(sccSnapshots.isBoundary, true)
     );
 }
 
@@ -89,7 +94,10 @@ async function snapshotBoundary(
         )
     ).trim();
     if (sha.length === 0) {
-        return { month: boundary.month, sha: "", status: "no-commit" };
+        db.delete(sccSnapshots)
+            .where(boundaryFilter(repo.name, boundary.month))
+            .run();
+        return { month: boundary.month, sha: null, status: "no-commit" };
     }
 
     const existing = db
@@ -112,11 +120,18 @@ async function snapshotBoundary(
                 .where(staleBoundaryFilter(repo.name, boundary.month, sha))
                 .run();
         });
-        return { month: boundary.month, sha, status: "skipped" };
+        return { month: boundary.month, sha, status: "measured" };
     }
 
-    await snapshotCommit(db, repo, boundary.month, sha, sccBinary, true);
-    return { month: boundary.month, sha, status: "inserted" };
+    const status = await snapshotCommit(
+        db,
+        repo,
+        boundary.month,
+        sha,
+        sccBinary,
+        true
+    );
+    return { month: boundary.month, sha, status };
 }
 
 async function snapshotCommit(
@@ -126,7 +141,7 @@ async function snapshotCommit(
     sha: string,
     sccBinary: string,
     isBoundary: boolean
-): Promise<void> {
+): Promise<"measured" | "empty"> {
     const worktreeDir = mkdtempSync(join(tmpdir(), "spanical-scc-worktree-"));
     const added = await tryCatch(
         runGit(["worktree", "add", "--detach", worktreeDir, sha], repo.path)
@@ -155,6 +170,7 @@ async function snapshotCommit(
     if (scan.error) {
         throw scan.error;
     }
+    return scan.data;
 }
 
 async function scanAndInsert(
@@ -165,7 +181,7 @@ async function scanAndInsert(
     sccBinary: string,
     worktreeDir: string,
     isBoundary: boolean
-): Promise<void> {
+): Promise<"measured" | "empty"> {
     const entries = await runScc(sccBinary, worktreeDir);
     const rows: SnapshotRow[] = entries.map((entry) => ({
         repo,
@@ -177,14 +193,12 @@ async function scanAndInsert(
         sha,
         isBoundary,
     }));
-    if (rows.length === 0) {
-        return;
-    }
     db.transaction((tx) => {
         if (isBoundary) {
-            tx.delete(sccSnapshots)
-                .where(staleBoundaryFilter(repo, month, sha))
-                .run();
+            tx.delete(sccSnapshots).where(boundaryFilter(repo, month)).run();
+        }
+        if (rows.length === 0) {
+            return;
         }
         for (
             let start = 0;
@@ -196,6 +210,7 @@ async function scanAndInsert(
                 .run();
         }
     });
+    return rows.length === 0 ? "empty" : "measured";
 }
 
 async function cleanupWorktree(

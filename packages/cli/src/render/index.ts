@@ -3,15 +3,18 @@ import type {
     DevComplexityRollup,
     DevPeriodRollup,
     ExcludedReviews,
+    HotspotRow,
     OwnershipAggregation,
     ReviewAggregation,
     ReviewCoverage,
     ReviewTeamRollup,
     SyncFloor,
+    SizeTrendPoint,
     TicketAggregation,
     TicketCounts,
     TicketCoverage,
     TicketTeamRollup,
+    TimelinePeriod,
 } from "../aggregate/types";
 import { formatCell } from "./format";
 import { renderJson } from "./json";
@@ -21,11 +24,14 @@ import {
     complexityTable,
     devTable,
     formatLatencyBasis,
+    hotspotsTable,
     ownershipTable,
     pullRequestSizeTable,
     reviewDevTable,
+    sizeTable,
     ticketDevTable,
     toPercent,
+    timelineTable,
 } from "./tables";
 import type { TableModel } from "./table-model";
 import { renderTable } from "./terminal";
@@ -108,24 +114,118 @@ function modelRenderer(
 export function renderData(
     format: RenderFormat,
     model: TableModel,
-    data: unknown
+    data: unknown,
+    emptyMessage?: string
 ): string {
     if (format === "json") return renderJson(data);
+    if (model.rows.length === 0 && emptyMessage !== undefined) {
+        return emptyMessage;
+    }
     if (format === "table") return renderTable(model);
     return renderMarkdown(model);
 }
 
+export type HotspotsReportContext = {
+    minFileLines: number;
+    unmeasuredRepos: string[];
+};
+
+export function formatUnmeasuredReposNote(repos: string[]): string | null {
+    if (repos.length === 0) {
+        return null;
+    }
+    return `Note: no commit at or before the window end was available for ${repos.join(", ")}; ${repos.length === 1 ? "that repository was" : "those repositories were"} not measured.`;
+}
+
+export function formatEmptyHotspots(context: HotspotsReportContext): string {
+    const sections = [
+        `No hotspots: no eligible non-binary, non-migration file both changed in the selected window and had at least ${formatCell(context.minFileLines)} code lines in its window-end SCC snapshot.`,
+    ];
+    const missingNote = formatUnmeasuredReposNote(context.unmeasuredRepos);
+    if (missingNote !== null) {
+        sections.push(missingNote);
+    }
+    return sections.join(REPORT_SEPARATOR);
+}
+
+export function renderHotspotsReport(
+    format: RenderFormat,
+    rows: HotspotRow[],
+    context: HotspotsReportContext
+): string {
+    if (format === "json") return renderJson(rows);
+    const content =
+        rows.length === 0
+            ? formatEmptyHotspots(context)
+            : modelRenderer(format, undefined)(hotspotsTable(rows));
+    const sections = [content];
+    if (rows.length > 0) {
+        const missingNote = formatUnmeasuredReposNote(context.unmeasuredRepos);
+        if (missingNote !== null) {
+            sections.push(missingNote);
+        }
+    }
+    return sections.join(REPORT_SEPARATOR);
+}
+
+export function renderSizeReport(
+    format: RenderFormat,
+    rows: SizeTrendPoint[],
+    context: { unmeasuredRepos: string[] }
+): string {
+    if (format === "json") {
+        return renderJson(rows);
+    }
+    const content = renderData(
+        format,
+        sizeTable(rows),
+        rows,
+        "No size trend: no monthly boundary SCC snapshot data was available for the selected repositories."
+    );
+    const missingNote = formatUnmeasuredReposNote(context.unmeasuredRepos);
+    return missingNote === null
+        ? content
+        : [content, missingNote].join(REPORT_SEPARATOR);
+}
+
+export function renderTimelineReport(
+    format: RenderFormat,
+    rows: TimelinePeriod[],
+    context: { windowStart: Date | null }
+): string {
+    const emptyMessage =
+        context.windowStart === null
+            ? "No timeline periods: an open-start history window has no bounded periods to plot."
+            : "No timeline periods were available for the selected window.";
+    return renderData(format, timelineTable(rows), rows, emptyMessage);
+}
+
+export type OwnershipReportContext = {
+    minFileLines: number;
+    busFactorThreshold: number;
+};
+
 export function renderOwnershipReport(
     format: RenderFormat,
-    result: OwnershipAggregation
+    result: OwnershipAggregation,
+    context: OwnershipReportContext
 ): string {
     if (format === "json") return renderJson(result);
     const renderModel = format === "md" ? renderMarkdown : renderTable;
-    return [
-        renderModel(ownershipTable(result.files)),
-        renderModel(busFactorTable(result.busFactor)),
-        OWNERSHIP_CAVEAT,
-    ].join(REPORT_SEPARATOR);
+    const sections = [
+        result.files.length === 0
+            ? `No ownership data: no surviving blame rows were available for files with at least ${formatCell(context.minFileLines)} code lines.`
+            : renderModel(ownershipTable(result.files)),
+    ];
+    if (result.files.length > 0) {
+        sections.push(
+            result.busFactor.length === 0
+                ? `No bus-factor warnings: no file met the ${toPercent(context.busFactorThreshold)} sole-ownership threshold.`
+                : renderModel(busFactorTable(result.busFactor))
+        );
+    }
+    sections.push(OWNERSHIP_CAVEAT);
+    return sections.join(REPORT_SEPARATOR);
 }
 
 export type TicketsReportContext = { window: string; repos: string[] };

@@ -175,8 +175,8 @@ test.skipIf(SCC_ON_PATH === null)(
             );
 
             expect(result.snapshots).toEqual([
-                { month: "2026-01", sha: shaA, status: "inserted" },
-                { month: "2026-02", sha: shaB, status: "inserted" },
+                { month: "2026-01", sha: shaA, status: "measured" },
+                { month: "2026-02", sha: shaB, status: "measured" },
             ]);
 
             const janRow = db
@@ -240,10 +240,45 @@ test.skipIf(SCC_ON_PATH === null)(
                 boundaries,
                 sccBinary
             );
-            expect(second.snapshots.every((s) => s.status === "skipped")).toBe(
-                true
-            );
+            expect(
+                second.snapshots.every(
+                    (snapshot) => snapshot.status === "measured"
+                )
+            ).toBe(true);
             expect(totalSnapshotRows(db)).toBe(rowsAfterFirst);
+        } finally {
+            sqlite.close();
+            cleanup([repo]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "returns the same measured SHA for consecutive quiet boundaries",
+    async () => {
+        const sccBinary = await resolveSccBinary();
+        const repo = initRepo();
+        commitAt(
+            repo,
+            "2026-01-15T10:00:00Z",
+            { [CLASSIFY_PATH]: CLASSIFY_TS },
+            "feat: classify"
+        );
+        const sha = headSha(repo);
+        const { db, sqlite } = openTestCache();
+        try {
+            const result = await snapshotRepo(
+                db,
+                { name: "web-app", path: repo },
+                "main",
+                [JAN_BOUNDARY, FEB_BOUNDARY],
+                sccBinary
+            );
+
+            expect(result.snapshots).toEqual([
+                { month: "2026-01", sha, status: "measured" },
+                { month: "2026-02", sha, status: "measured" },
+            ]);
         } finally {
             sqlite.close();
             cleanup([repo]);
@@ -313,9 +348,82 @@ test.skipIf(SCC_ON_PATH === null)(
                 sccBinary
             );
             expect(result.snapshots).toEqual([
-                { month: "2025-12", sha: "", status: "no-commit" },
+                { month: "2025-12", sha: null, status: "no-commit" },
             ]);
             expect(totalSnapshotRows(db)).toBe(0);
+        } finally {
+            sqlite.close();
+            cleanup([repo]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "records an exact SHA as measured empty when scc finds no code",
+    async () => {
+        const sccBinary = await resolveSccBinary();
+        const repo = initRepo();
+        commitAt(
+            repo,
+            "2026-01-15T10:00:00Z",
+            { ".gitkeep": "" },
+            "chore: keep empty repository"
+        );
+        const sha = headSha(repo);
+        const { db, sqlite } = openTestCache();
+        try {
+            const result = await snapshotRepo(
+                db,
+                { name: "web-app", path: repo },
+                "main",
+                [JAN_BOUNDARY],
+                sccBinary
+            );
+
+            expect(result.snapshots).toEqual([
+                { month: "2026-01", sha, status: "empty" },
+            ]);
+            expect(totalSnapshotRows(db)).toBe(0);
+        } finally {
+            sqlite.close();
+            cleanup([repo]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "removes a stale monthly boundary when a narrower cutoff has no commit",
+    async () => {
+        const sccBinary = await resolveSccBinary();
+        const { repo } = buildRepo();
+        const { db, sqlite } = openTestCache();
+        try {
+            await snapshotRepo(
+                db,
+                { name: "web-app", path: repo },
+                "main",
+                [JAN_BOUNDARY],
+                sccBinary
+            );
+            expect(boundaryShas(db, "web-app", "2026-01")).not.toEqual([]);
+
+            const result = await snapshotRepo(
+                db,
+                { name: "web-app", path: repo },
+                "main",
+                [
+                    {
+                        month: "2026-01",
+                        end: new Date("2026-01-10T00:00:00Z"),
+                    },
+                ],
+                sccBinary
+            );
+
+            expect(result.snapshots).toEqual([
+                { month: "2026-01", sha: null, status: "no-commit" },
+            ]);
+            expect(boundaryShas(db, "web-app", "2026-01")).toEqual([]);
         } finally {
             sqlite.close();
             cleanup([repo]);
@@ -402,7 +510,7 @@ test.skipIf(SCC_ON_PATH === null)(
                 sccBinary
             );
             expect(second.snapshots).toEqual([
-                { month: "2026-02", sha: shaB, status: "inserted" },
+                { month: "2026-02", sha: shaB, status: "measured" },
             ]);
 
             expect(boundaryShas(db, "web-app", "2026-02")).toEqual([shaB]);
@@ -449,7 +557,7 @@ test.skipIf(SCC_ON_PATH === null)(
                 sccBinary
             );
             expect(result.snapshots).toEqual([
-                { month: "2026-02", sha, status: "skipped" },
+                { month: "2026-02", sha, status: "measured" },
             ]);
 
             expect(boundaryShas(db, "web-app", "2026-02")).toEqual([sha]);

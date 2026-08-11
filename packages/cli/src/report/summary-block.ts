@@ -15,22 +15,32 @@ const NOT_AVAILABLE = "n/a";
 
 type Pair = { label: string; value: string };
 type Row = { left: Pair; right: Pair };
+export type SizeCoverage = "complete" | "partial" | "unavailable";
 
 function signedLoc(value: number): string {
     const sign = value >= 0 ? "+" : "-";
     return `${sign}${formatCell(Math.abs(value))} LOC`;
 }
 
+function totalSize(value: number, coverage: SizeCoverage): string {
+    if (coverage === "unavailable") {
+        return NOT_AVAILABLE;
+    }
+    const suffix = coverage === "partial" ? " (partial)" : "";
+    return `${formatCell(value)} LOC${suffix}`;
+}
+
 export function formatSummaryBlock(
     summary: CodebaseSummary,
-    granularity: Granularity
+    granularity: Granularity,
+    sizeCoverage: SizeCoverage = "complete"
 ): string {
     const rows: Row[] = [
         {
             left: { label: "Net growth", value: signedLoc(summary.netGrowth) },
             right: {
                 label: "Total now",
-                value: `${formatCell(summary.totalSizeNow)} LOC`,
+                value: totalSize(summary.totalSizeNow, sizeCoverage),
             },
         },
         {

@@ -1,6 +1,7 @@
 import { and, countDistinct, eq, gte, inArray, lt } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import { commitAuthors, commits } from "../cache/schema";
+import type { SnapshotResult } from "../scc";
 import type { Period } from "../window/types";
 import { aggregatePerPeriod } from "./per-period";
 import { aggregateSizeTrend } from "./size";
@@ -53,7 +54,13 @@ function findBusiestPeriod(perPeriod: PeriodRollup[]): string | null {
 
 export function aggregateSummary(
     db: CacheDatabase,
-    opts: { periods: Period[]; repo?: string; repos?: string[] }
+    opts: {
+        periods: Period[];
+        repo?: string;
+        repos?: string[];
+        sizeMonths?: string[];
+        sizeSnapshots?: SnapshotResult[];
+    }
 ): CodebaseSummary {
     const perPeriod = aggregatePerPeriod(db, {
         periods: opts.periods,
@@ -63,6 +70,8 @@ export function aggregateSummary(
     const sizeTrend = aggregateSizeTrend(db, {
         repo: opts.repo,
         repos: opts.repos,
+        months: opts.sizeMonths,
+        snapshots: opts.sizeSnapshots,
     });
 
     const commitCount = perPeriod.reduce(

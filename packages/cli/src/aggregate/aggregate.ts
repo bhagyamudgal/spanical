@@ -1,4 +1,5 @@
 import type { CacheDatabase } from "../cache/open";
+import type { SnapshotResult } from "../scc";
 import type { Period, ResolvedWindow } from "../window/types";
 import { aggregatePerDev } from "./per-dev";
 import { aggregatePerPeriod } from "./per-period";
@@ -13,6 +14,8 @@ function aggregateScope(
         timezone: string;
         repo?: string;
         repos?: string[];
+        sizeMonths?: string[];
+        sizeSnapshots?: SnapshotResult[];
     }
 ): RepoAggregation {
     return {
@@ -20,6 +23,8 @@ function aggregateScope(
             periods: opts.periods,
             repo: opts.repo,
             repos: opts.repos,
+            sizeMonths: opts.sizeMonths,
+            sizeSnapshots: opts.sizeSnapshots,
         }),
         perPeriod: aggregatePerPeriod(db, {
             periods: opts.periods,
@@ -35,19 +40,29 @@ function aggregateScope(
         sizeTrend: aggregateSizeTrend(db, {
             repo: opts.repo,
             repos: opts.repos,
+            months: opts.sizeMonths,
+            snapshots: opts.sizeSnapshots,
         }),
     };
 }
 
 export function aggregateAll(
     db: CacheDatabase,
-    opts: { window: ResolvedWindow; timezone: string; repos: string[] }
+    opts: {
+        window: ResolvedWindow;
+        timezone: string;
+        repos: string[];
+        sizeMonths?: string[];
+        sizeSnapshots?: SnapshotResult[];
+    }
 ): FullAggregation {
     const { periods } = opts.window;
     const combined = aggregateScope(db, {
         periods,
         timezone: opts.timezone,
         repos: opts.repos,
+        sizeMonths: opts.sizeMonths,
+        sizeSnapshots: opts.sizeSnapshots,
     });
     const perRepo = opts.repos.map((repo) => ({
         repo,
@@ -55,6 +70,8 @@ export function aggregateAll(
             periods,
             timezone: opts.timezone,
             repo,
+            sizeMonths: opts.sizeMonths,
+            sizeSnapshots: opts.sizeSnapshots,
         }),
     }));
 

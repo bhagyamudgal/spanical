@@ -11,6 +11,7 @@ import {
     sccSnapshots,
 } from "../cache/schema";
 import type { Period } from "../window/types";
+import type { SnapshotResult } from "../scc";
 import { aggregatePerPeriod } from "./per-period";
 import { aggregateSizeTrend } from "./size";
 import { aggregateSummary } from "./summary";
@@ -278,6 +279,96 @@ test("aggregateSizeTrend groups scc snapshots by month with language breakdown",
                 ],
             },
         ]);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateSizeTrend preserves a measured empty month as zero", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const snapshots: SnapshotResult[] = [
+            {
+                repo: "web-app",
+                snapshots: [
+                    { month: "2025-08", sha: "c-empty", status: "empty" },
+                ],
+            },
+        ];
+        const trend = aggregateSizeTrend(handle.db, {
+            repo: "web-app",
+            snapshots,
+        });
+
+        expect(trend.at(-1)).toEqual({
+            month: "2025-08",
+            totalCode: 0,
+            totalComplexity: 0,
+            languages: [],
+        });
+        const summary = aggregateSummary(handle.db, {
+            periods: [P1, P2],
+            repo: "web-app",
+            sizeSnapshots: snapshots,
+        });
+        expect(summary.totalSizeNow).toBe(0);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateSizeTrend reuses an exact SHA across quiet monthly boundaries", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const snapshots: SnapshotResult[] = [
+            {
+                repo: "web-app",
+                snapshots: [
+                    { month: "2025-06", sha: "c1", status: "measured" },
+                    { month: "2025-07", sha: "c1", status: "measured" },
+                ],
+            },
+        ];
+
+        expect(
+            aggregateSizeTrend(handle.db, {
+                repo: "web-app",
+                snapshots,
+            })
+        ).toEqual([
+            {
+                month: "2025-06",
+                totalCode: 20,
+                totalComplexity: 3,
+                languages: [{ language: "TypeScript", code: 20 }],
+            },
+            {
+                month: "2025-07",
+                totalCode: 20,
+                totalComplexity: 3,
+                languages: [{ language: "TypeScript", code: 20 }],
+            },
+        ]);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateSizeTrend excludes cached boundaries outside the selected months", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const trend = aggregateSizeTrend(handle.db, {
+            repo: "web-app",
+            months: ["2025-07"],
+        });
+
+        expect(trend.map((point) => point.month)).toEqual(["2025-07"]);
+        expect(
+            aggregateSizeTrend(handle.db, { repo: "web-app", months: [] })
+        ).toEqual([]);
     } finally {
         handle.sqlite.close();
         rmSync(dir, { recursive: true, force: true });
