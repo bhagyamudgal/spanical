@@ -368,6 +368,51 @@ function seedTickets(handle: ReturnType<typeof openCache>): void {
         .run();
 }
 
+function seedOutOfWindowTicket(
+    handle: ReturnType<typeof openCache>,
+    reviewSubmittedAt?: number
+): void {
+    handle.db
+        .insert(tickets)
+        .values({
+            nodeId: "pr-before-window",
+            repo: "web-app",
+            kind: "pr",
+            number: 3,
+            title: "feat: earlier work",
+            author: DEV_ONE_LOGIN,
+            authorIsBot: false,
+            assignee: DEV_ONE_LOGIN,
+            assigneeIsBot: false,
+            closedBy: DEV_ONE_LOGIN,
+            closedByIsBot: false,
+            createdAt: Date.UTC(2025, 4, 1),
+            closedAt: Date.UTC(2025, 4, 2),
+            mergedAt: Date.UTC(2025, 4, 2),
+            updatedAt: Date.UTC(2025, 4, 2),
+            state: "MERGED",
+            reopenedCount: 0,
+            additions: 20,
+            deletions: 5,
+        })
+        .run();
+    if (reviewSubmittedAt === undefined) {
+        return;
+    }
+    handle.db
+        .insert(reviews)
+        .values({
+            nodeId: "review-in-window",
+            prNodeId: "pr-before-window",
+            reviewer: DEV_TWO_LOGIN,
+            reviewerIsBot: false,
+            submittedAt: reviewSubmittedAt,
+            requestedAt: Date.UTC(2025, 5, 9),
+            state: "APPROVED",
+        })
+        .run();
+}
+
 function seedSyncFloor(
     handle: ReturnType<typeof openCache>,
     since: string
@@ -1176,7 +1221,7 @@ test("buildReportArtifact says so when a failed refresh has no cache behind it",
         expect(artifact).toContain(
             "nothing is cached here to fall back on, so the ticket layer has nothing to report"
         );
-        expect(artifact).toContain("No tickets cached for 2025-06 – 2025-07");
+        expect(artifact).toContain("No ticket activity in 2025-06 – 2025-07");
         expect(artifact).not.toContain("Team: 0 opened");
     } finally {
         handle.sqlite.close();
@@ -1242,23 +1287,39 @@ test("buildReportArtifact carries a late sync floor into the ticket sections", (
     }
 });
 
-test("buildReportArtifact discloses the sync floor even when the window is empty", () => {
+test("buildReportArtifact omits ticket sections when the window is empty", () => {
     const { handle, dir } = seedFixture();
     try {
+        seedOutOfWindowTicket(handle);
         seedSyncFloor(handle, "2025-07-01");
         const artifact = buildArtifact(handle, TICKET_REFRESH);
 
-        expect(artifact).toContain("No tickets cached for 2025-06 – 2025-07");
-        expect(artifact).toContain("No reviews cached for 2025-06 – 2025-07");
-        expect(
-            artifact
-                .split("\n")
-                .filter((line) =>
-                    line.startsWith(
-                        "Note: the ticket cache was synced from a later date"
-                    )
-                )
-        ).toHaveLength(4);
+        expect(artifact).not.toContain("## Tickets");
+        expect(artifact).not.toContain("## Reviews");
+        expect(artifact).not.toContain("#### Tickets");
+        expect(artifact).not.toContain("#### Reviews");
+        expect(artifact).not.toContain("No tickets cached");
+        expect(artifact).not.toContain("No reviews cached");
+        expect(artifact).not.toContain(
+            "Note: the ticket cache was synced from a later date"
+        );
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact keeps both sections for review-only window activity", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        seedOutOfWindowTicket(handle, Date.UTC(2025, 5, 10));
+        const artifact = buildArtifact(handle, TICKET_REFRESH);
+
+        expect(artifact).toContain("## Tickets");
+        expect(artifact).toContain("## Reviews");
+        expect(artifact).toContain("review latency 24h median");
+        expect(artifact).toContain("#### Tickets");
+        expect(artifact).toContain("#### Reviews");
     } finally {
         handle.sqlite.close();
         rmSync(dir, { recursive: true, force: true });

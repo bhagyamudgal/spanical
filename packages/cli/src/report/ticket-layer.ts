@@ -1,6 +1,7 @@
 import { count, inArray } from "drizzle-orm";
 import { tryCatch } from "@spanical/utils";
 import { aggregateReviews, aggregateTickets } from "../aggregate";
+import { hasTicketActivity } from "../aggregate/tickets";
 import type {
     ReviewAggregation,
     TicketAggregation,
@@ -137,6 +138,14 @@ export function collectTicketInsight(
     };
 }
 
+export function hasTicketInsightActivity(insight: TicketInsight): boolean {
+    return (
+        hasTicketActivity(insight.tickets.team) ||
+        insight.reviews.team.reviewsGiven > 0 ||
+        insight.reviews.excluded.selfReviews > 0
+    );
+}
+
 // The warning repeats on every section it applies to: a reader who opens the
 // per-repo appendix alone must not read stale counts as fresh ones.
 export function ticketSections(input: {
@@ -146,6 +155,9 @@ export function ticketSections(input: {
     repos: string[];
     level: number;
 }): string[] {
+    if (input.failure === null && !hasTicketInsightActivity(input.insight)) {
+        return [];
+    }
     const heading = "#".repeat(input.level);
     const layout: MarkdownLayout = {
         titleLevel: input.level + TABLE_TITLE_DEPTH,

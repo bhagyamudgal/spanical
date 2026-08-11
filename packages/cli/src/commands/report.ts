@@ -34,6 +34,7 @@ import { defaultReportPath } from "../report/filename";
 import { formatHeadline } from "../report/headline";
 import {
     collectTicketInsight,
+    hasTicketInsightActivity,
     refreshTicketCache,
     type TicketRefresh,
 } from "../report/ticket-layer";
@@ -84,18 +85,23 @@ function buildReportTickets(
     refresh: TicketRefresh | null,
     repos: string[]
 ): ReportTickets | null {
-    return refresh === null
-        ? null
-        : {
-              combined: collectTicketInsight(db, run, refresh, repos),
-              byRepo: new Map(
-                  repos.map((repo) => [
-                      repo,
-                      collectTicketInsight(db, run, refresh, [repo]),
-                  ])
-              ),
-              failure: refresh.failure,
-          };
+    if (refresh === null) {
+        return null;
+    }
+    const combined = collectTicketInsight(db, run, refresh, repos);
+    if (refresh.failure === null && !hasTicketInsightActivity(combined)) {
+        return null;
+    }
+    return {
+        combined,
+        byRepo: new Map(
+            repos.map((repo) => [
+                repo,
+                collectTicketInsight(db, run, refresh, [repo]),
+            ])
+        ),
+        failure: refresh.failure,
+    };
 }
 
 function computeComplexity(
