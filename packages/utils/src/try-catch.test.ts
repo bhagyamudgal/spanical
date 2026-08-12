@@ -149,3 +149,26 @@ test("tryCatchRetry returns errors thrown while classifying a retry", async () =
     expect(result.data).toBeNull();
     expect(result.error).toBe(callbackError);
 });
+
+test("tryCatchRetry passes the one-based retry number to delay callbacks", async () => {
+    let attempts = 0;
+    const retries: number[] = [];
+    const result = await tryCatchRetry(
+        () => {
+            attempts += 1;
+            return attempts < 3
+                ? Promise.reject(new Error("try again"))
+                : Promise.resolve(42);
+        },
+        {
+            maxRetries: 3,
+            delayMs(_error, retry) {
+                retries.push(retry);
+                return 0;
+            },
+        }
+    );
+
+    expect(result.data).toBe(42);
+    expect(retries).toEqual([1, 2]);
+});

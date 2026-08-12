@@ -5,6 +5,7 @@ import issuesFixture from "./fixtures/issues-page.json";
 import pullRequestsFixture from "./fixtures/pull-requests-page.json";
 import {
     applyRateLimitBackoff,
+    REQUEST_TIMEOUT_MS,
     runGraphQLQuery,
     shouldBackoff,
     type GraphQLTransport,
@@ -16,7 +17,6 @@ import type { LoginResolver } from "./identity";
 
 const TOKEN = "secret-token-value";
 const PROBE_SCHEMA = z.object({ ok: z.boolean() });
-const TEST_REQUEST_TIMEOUT_MS = 30_000;
 
 type Captured = { url: string; headers: Record<string, string>; body: string };
 
@@ -95,6 +95,9 @@ test("network failures retry until the transport succeeds", async () => {
     const stderr = spyOn(process.stderr, "write").mockImplementation(
         () => true
     );
+    const sleep = spyOn(Bun, "sleep").mockImplementation(() =>
+        Promise.resolve()
+    );
 
     try {
         const result = await runGraphQLQuery({
@@ -119,6 +122,7 @@ test("network failures retry until the transport succeeds", async () => {
         expect(notices).toContain("connection reset");
         expect(stderr).toHaveBeenCalledTimes(2);
     } finally {
+        sleep.mockRestore();
         stderr.mockRestore();
     }
 });
@@ -127,11 +131,16 @@ test("a stalled response body times out, aborts, and retries", async () => {
     let attempts = 0;
     let stalledBodyController:
         ReadableStreamDefaultController<Uint8Array> | undefined;
+    let markFirstRequestStarted: (() => void) | undefined;
+    const firstRequestStarted = new Promise<void>((resolve) => {
+        markFirstRequestStarted = resolve;
+    });
     const signals: AbortSignal[] = [];
     const transport: GraphQLTransport = (_url, init) => {
         attempts += 1;
         signals.push(init.signal);
         if (attempts === 1) {
+            markFirstRequestStarted?.();
             const body = new ReadableStream<Uint8Array>({
                 start(controller) {
                     stalledBodyController = controller;
@@ -146,6 +155,9 @@ test("a stalled response body times out, aborts, and retries", async () => {
     const stderr = spyOn(process.stderr, "write").mockImplementation(
         () => true
     );
+    const sleep = spyOn(Bun, "sleep").mockImplementation(() =>
+        Promise.resolve()
+    );
     jest.useFakeTimers();
     const query = runGraphQLQuery({
         query: "query Probe { ok }",
@@ -157,20 +169,56 @@ test("a stalled response body times out, aborts, and retries", async () => {
     });
 
     try {
-        await Promise.resolve();
-        await Promise.resolve();
-        jest.advanceTimersByTime(TEST_REQUEST_TIMEOUT_MS);
-        await Promise.resolve();
-        await Promise.resolve();
+        await firstRequestStarted;
+        jest.advanceTimersByTime(REQUEST_TIMEOUT_MS);
+        const result = await query;
 
         expect(signals[0]?.aborted).toBe(true);
-        expect(await query).toEqual({ ok: true });
+        expect(result).toEqual({ ok: true });
         expect(attempts).toBe(2);
     } finally {
         stalledBodyController?.close();
         jest.useRealTimers();
+        sleep.mockRestore();
         stderr.mockRestore();
         await tryCatch(query);
+    }
+});
+
+test("transient failures wait with exponential backoff", async () => {
+    let attempts = 0;
+    const transport: GraphQLTransport = () => {
+        attempts += 1;
+        if (attempts <= 3) {
+            return Promise.reject(new Error("connection reset"));
+        }
+        return Promise.resolve(
+            Response.json({ data: { ok: true } }, { status: 200 })
+        );
+    };
+    const sleep = spyOn(Bun, "sleep").mockImplementation(() =>
+        Promise.resolve()
+    );
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+
+    try {
+        await runGraphQLQuery({
+            query: "query Probe { ok }",
+            queryName: "probe",
+            variables: { cursor: null },
+            schema: PROBE_SCHEMA,
+            token: TOKEN,
+            transport,
+        });
+
+        expect(sleep.mock.calls.map((call) => call[0])).toEqual([
+            500, 1_000, 2_000,
+        ]);
+    } finally {
+        sleep.mockRestore();
+        stderr.mockRestore();
     }
 });
 
@@ -195,6 +243,9 @@ test("a network failure while reading the response body is retried", async () =>
     const stderr = spyOn(process.stderr, "write").mockImplementation(
         () => true
     );
+    const sleep = spyOn(Bun, "sleep").mockImplementation(() =>
+        Promise.resolve()
+    );
 
     try {
         const result = await runGraphQLQuery({
@@ -209,6 +260,7 @@ test("a network failure while reading the response body is retried", async () =>
         expect(result).toEqual({ ok: true });
         expect(attempts).toBe(2);
     } finally {
+        sleep.mockRestore();
         stderr.mockRestore();
     }
 });
@@ -264,6 +316,9 @@ test("server failures retry until the transport succeeds", async () => {
     const stderr = spyOn(process.stderr, "write").mockImplementation(
         () => true
     );
+    const sleep = spyOn(Bun, "sleep").mockImplementation(() =>
+        Promise.resolve()
+    );
 
     try {
         const result = await runGraphQLQuery({
@@ -278,6 +333,7 @@ test("server failures retry until the transport succeeds", async () => {
         expect(result).toEqual({ ok: true });
         expect(attempts).toBe(3);
     } finally {
+        sleep.mockRestore();
         stderr.mockRestore();
     }
 });
@@ -296,17 +352,29 @@ test("a 401 becomes a coded unauthorized error that never echoes the token", asy
 });
 
 test("a non-ok status becomes a request failure carrying the body, not the token", async () => {
-    const { error, captured } = await runProbe(
-        JSON.stringify({ message: "We couldn't respond in time." }),
-        502
+    const sleep = spyOn(Bun, "sleep").mockImplementation(() =>
+        Promise.resolve()
     );
-    expect(error).toBeInstanceOf(GitHubError);
-    expect(captured).toHaveLength(4);
-    if (error instanceof GitHubError) {
-        expect(error.code).toBe(GITHUB_ERROR_CODES.REQUEST_FAILED);
-        expect(error.message).toContain("502");
-        expect(error.message).toContain("couldn't respond in time");
-        expect(error.message).not.toContain(TOKEN);
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+
+    try {
+        const { error, captured } = await runProbe(
+            JSON.stringify({ message: "We couldn't respond in time." }),
+            502
+        );
+        expect(error).toBeInstanceOf(GitHubError);
+        expect(captured).toHaveLength(4);
+        if (error instanceof GitHubError) {
+            expect(error.code).toBe(GITHUB_ERROR_CODES.REQUEST_FAILED);
+            expect(error.message).toContain("502");
+            expect(error.message).toContain("couldn't respond in time");
+            expect(error.message).not.toContain(TOKEN);
+        }
+    } finally {
+        sleep.mockRestore();
+        stderr.mockRestore();
     }
 });
 
@@ -428,6 +496,45 @@ test("a 403 with a blank Retry-After is not retried", async () => {
         expect(error).toBeInstanceOf(GitHubError);
         expect(attempts).toBe(1);
     } finally {
+        stderr.mockRestore();
+    }
+});
+
+test("a 403 with Retry-After above the maximum is not retried", async () => {
+    let attempts = 0;
+    const transport: GraphQLTransport = () => {
+        attempts += 1;
+        return Promise.resolve(
+            new Response("secondary rate limit", {
+                status: 403,
+                headers: { "Retry-After": "61" },
+            })
+        );
+    };
+    const sleep = spyOn(Bun, "sleep").mockImplementation(() =>
+        Promise.resolve()
+    );
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+
+    try {
+        const { error } = await tryCatch(
+            runGraphQLQuery({
+                query: "query Probe { ok }",
+                queryName: "probe",
+                variables: { cursor: null },
+                schema: PROBE_SCHEMA,
+                token: TOKEN,
+                transport,
+            })
+        );
+
+        expect(error).toBeInstanceOf(GitHubError);
+        expect(attempts).toBe(1);
+        expect(sleep).not.toHaveBeenCalled();
+    } finally {
+        sleep.mockRestore();
         stderr.mockRestore();
     }
 });

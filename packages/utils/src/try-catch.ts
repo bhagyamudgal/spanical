@@ -3,7 +3,7 @@ type Failure = { data: null; error: Error };
 type Result<T> = Success<T> | Failure;
 type RetryOptions = {
     maxRetries: number;
-    delayMs?: number | ((error: Error) => number);
+    delayMs?: number | ((error: Error, retry: number) => number);
     onRetry?: (error: Error, retry: number, delayMs: number) => void;
     shouldRetry?: (error: Error) => boolean;
 };
@@ -57,7 +57,7 @@ async function retryOperation<T>(
         retry += 1;
         const delayMs =
             typeof options.delayMs === "function"
-                ? options.delayMs(result.error)
+                ? options.delayMs(result.error, retry)
                 : (options.delayMs ?? 0);
         options.onRetry?.(result.error, retry, delayMs);
         await delay(delayMs);

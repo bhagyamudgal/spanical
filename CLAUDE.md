@@ -133,6 +133,9 @@ const retryResult = await tryCatchRetry(() => fetch(url), { maxRetries: 3 });
 const timeoutResult = await tryCatchWithTimeout(fetch(url), 5000);
 ```
 
+`tryCatchWithTimeout` does not cancel its input promise. When continued work is
+unsafe, cancel it at the caller with an `AbortController` or equivalent.
+
 ## Comments
 
 Do not write comments unless the logic is genuinely complex. Comments explain WHY, never WHAT. No JSDoc for obvious functions. No section dividers.

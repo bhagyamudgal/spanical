@@ -13,9 +13,12 @@ const GITHUB_TOKEN_ENV = "GITHUB_TOKEN";
 const UNAUTHORIZED_STATUS = 401;
 const SECONDARY_RATE_LIMIT_STATUS = 403;
 const RETRY_AFTER_HEADER = "Retry-After";
+const RETRY_AFTER_MAX_MS = 60_000;
+const RETRY_BASE_DELAY_MS = 500;
+const RETRY_BACKOFF_FACTOR = 2;
 const ERROR_BODY_LIMIT = 500;
 const RATE_LIMIT_FLOOR = 100;
-const REQUEST_TIMEOUT_MS = 30_000;
+export const REQUEST_TIMEOUT_MS = 30_000;
 const REQUEST_MAX_RETRIES = 3;
 const SERVER_ERROR_STATUS_MIN = 500;
 const SERVER_ERROR_STATUS_MAX = 599;
@@ -57,7 +60,12 @@ function retryAfterMs(response: Response): number | null {
     if (!Number.isFinite(seconds) || seconds < 0) {
         return null;
     }
-    return seconds * 1_000;
+    const waitMs = seconds * 1_000;
+    return waitMs <= RETRY_AFTER_MAX_MS ? waitMs : null;
+}
+
+function calculateRetryDelayMs(retry: number): number {
+    return RETRY_BASE_DELAY_MS * RETRY_BACKOFF_FACTOR ** (retry - 1);
 }
 
 export type GraphQLTransport = (
@@ -231,10 +239,12 @@ export async function runGraphQLQuery<Schema extends z.ZodType>(options: {
 
     const result = await tryCatchRetry(request, {
         maxRetries: REQUEST_MAX_RETRIES,
-        delayMs(error) {
-            return error instanceof RetryableResponseError
-                ? error.retryAfterMs
-                : 0;
+        delayMs(error, retry) {
+            const retryAfter =
+                error instanceof RetryableResponseError
+                    ? error.retryAfterMs
+                    : 0;
+            return Math.max(retryAfter, calculateRetryDelayMs(retry));
         },
         shouldRetry(error) {
             return (
