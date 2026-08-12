@@ -11,6 +11,8 @@ const REDACTED_USERINFO = "://***@";
 const GIT_SUFFIX = ".git";
 const SLUG_SEGMENT_COUNT = 2;
 const NO_SUCH_REMOTE_EXIT_CODE = 2;
+const ORIGIN_MISSING_CAUSE = `has no "origin" remote, so its GitHub repository cannot be determined. Add an origin remote, or set github: "owner/name" on that repo entry in spanical.config.ts.`;
+const ORIGIN_NOT_GITHUB_CAUSE = `that is not a ${GITHUB_HOST} repository. Set github: "owner/name" on that repo entry in spanical.config.ts.`;
 
 export type RepoSlug = { owner: string; name: string };
 
@@ -91,8 +93,11 @@ export async function resolveRepoSlug(repo: RepoRef): Promise<RepoSlug> {
         ) {
             throw new GitHubError(
                 GITHUB_ERROR_CODES.ORIGIN_MISSING,
-                `Repo "${repo.name}" (${repo.path}) has no "origin" remote, so its GitHub repository cannot be determined. Add an origin remote, or set github: "owner/name" on that repo entry in spanical.config.ts.`,
-                { cause: error }
+                `Repo "${repo.name}" (${repo.path}) ${ORIGIN_MISSING_CAUSE}`,
+                {
+                    cause: error,
+                    artifactMessage: `Repo "${repo.name}" ${ORIGIN_MISSING_CAUSE}`,
+                }
             );
         }
         throw error;
@@ -106,7 +111,10 @@ export async function resolveRepoSlug(repo: RepoRef): Promise<RepoSlug> {
         const shown = remoteUrl.trim().replace(URL_USERINFO, REDACTED_USERINFO);
         throw new GitHubError(
             GITHUB_ERROR_CODES.ORIGIN_NOT_GITHUB,
-            `Repo "${repo.name}" has an origin remote (${shown}) that is not a ${GITHUB_HOST} repository. Set github: "owner/name" on that repo entry in spanical.config.ts.`
+            `Repo "${repo.name}" has an origin remote (${shown}) ${ORIGIN_NOT_GITHUB_CAUSE}`,
+            {
+                artifactMessage: `Repo "${repo.name}" has an origin remote ${ORIGIN_NOT_GITHUB_CAUSE}`,
+            }
         );
     }
     return slug;

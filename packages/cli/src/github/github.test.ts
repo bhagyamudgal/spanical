@@ -114,6 +114,9 @@ test("resolveRepoSlug fails clearly when the repo has no origin remote", async (
         if (error instanceof GitHubError) {
             expect(error.code).toBe(GITHUB_ERROR_CODES.ORIGIN_MISSING);
             expect(error.message).toContain("web-app");
+            expect(error.message).toContain(repo);
+            expect(error.artifactMessage).toContain('has no "origin" remote');
+            expect(error.artifactMessage).not.toContain(repo);
         }
     } finally {
         rmSync(repo, { recursive: true, force: true });
@@ -131,6 +134,8 @@ test("resolveRepoSlug fails clearly when origin is not a GitHub host", async () 
         if (error instanceof GitHubError) {
             expect(error.code).toBe(GITHUB_ERROR_CODES.ORIGIN_NOT_GITHUB);
             expect(error.message).toContain("gitlab.com");
+            expect(error.artifactMessage).toContain("web-app");
+            expect(error.artifactMessage).not.toContain("gitlab.com:acme/web");
         }
     } finally {
         rmSync(repo, { recursive: true, force: true });

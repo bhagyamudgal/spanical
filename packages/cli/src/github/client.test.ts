@@ -106,6 +106,10 @@ test("a body that is not JSON becomes an invalid-response error", async () => {
     expect(error).toBeInstanceOf(GitHubError);
     if (error instanceof GitHubError) {
         expect(error.code).toBe(GITHUB_ERROR_CODES.RESPONSE_INVALID);
+        expect(error.message).toContain("returned a body that is not JSON: ");
+        expect(error.artifactMessage).toBe(
+            "GitHub GraphQL probe returned a body that is not JSON."
+        );
     }
 });
 
@@ -113,13 +117,22 @@ test("a 200 carrying a populated errors array fails before any data is read", as
     const { error } = await runProbe(
         JSON.stringify({
             data: { ok: true },
-            errors: [{ message: "Could not resolve to a Repository" }],
+            errors: [
+                {
+                    message:
+                        "Could not resolve to a Repository with the name 'acme/web-app'",
+                },
+            ],
         })
     );
     expect(error).toBeInstanceOf(GitHubError);
     if (error instanceof GitHubError) {
         expect(error.code).toBe(GITHUB_ERROR_CODES.QUERY_FAILED);
         expect(error.message).toContain("Could not resolve to a Repository");
+        expect(error.message).toContain("acme/web-app");
+        expect(error.artifactMessage).toBe(
+            "GitHub GraphQL probe returned 1 error(s)."
+        );
     }
 });
 
@@ -129,6 +142,10 @@ test("data that does not match the schema becomes an invalid-response error", as
     if (error instanceof GitHubError) {
         expect(error.code).toBe(GITHUB_ERROR_CODES.RESPONSE_INVALID);
         expect(error.message).toContain("ok");
+        expect(error.message).toContain("expected boolean");
+        expect(error.artifactMessage).toBe(
+            "GitHub GraphQL probe returned an unexpected shape."
+        );
     }
 });
 
