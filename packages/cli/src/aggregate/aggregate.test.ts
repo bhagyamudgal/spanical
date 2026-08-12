@@ -11,6 +11,7 @@ import {
     sccSnapshots,
 } from "../cache/schema";
 import type { Period, ResolvedWindow } from "../window/types";
+import type { SnapshotResult } from "../scc";
 import { aggregateAll } from "./aggregate";
 
 const P1: Period = {
@@ -262,6 +263,53 @@ test("aggregateAll scopes the combined sizeTrend to the requested repos", () => 
         });
 
         expect(combined.sizeTrend.at(-1)?.totalCode).toBe(25);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregateAll preserves measured empty months in combined and per-repo size", () => {
+    const { handle, dir } = seedMultiRepo();
+    try {
+        const sizeSnapshots: SnapshotResult[] = [
+            {
+                repo: "web-app",
+                snapshots: [
+                    { month: "2025-07", sha: "c2", status: "measured" },
+                    { month: "2025-08", sha: "w-empty", status: "empty" },
+                ],
+            },
+            {
+                repo: "api",
+                snapshots: [
+                    { month: "2025-07", sha: "c5", status: "measured" },
+                    { month: "2025-08", sha: null, status: "no-commit" },
+                ],
+            },
+        ];
+        const full = aggregateAll(handle.db, {
+            window: WINDOW,
+            timezone: "UTC",
+            repos: ["web-app", "api"],
+            sizeSnapshots,
+        });
+
+        expect(full.combined.sizeTrend.at(-1)).toEqual({
+            month: "2025-08",
+            totalCode: 0,
+            totalComplexity: 0,
+            languages: [],
+        });
+        expect(full.combined.summary.totalSizeNow).toBe(0);
+        expect(
+            full.perRepo.find((entry) => entry.repo === "web-app")?.aggregation
+                .summary.totalSizeNow
+        ).toBe(0);
+        expect(
+            full.perRepo.find((entry) => entry.repo === "api")?.aggregation
+                .summary.totalSizeNow
+        ).toBe(100);
     } finally {
         handle.sqlite.close();
         rmSync(dir, { recursive: true, force: true });

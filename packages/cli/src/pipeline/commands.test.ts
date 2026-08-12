@@ -20,9 +20,12 @@ import { writeRendered } from "../render";
 import {
     runChurn,
     runContributors,
+    runHotspots,
+    runOwnership,
     runReviews,
     runSize,
     runTickets,
+    runTimeline,
 } from "./commands";
 
 const NOW = new Date("2026-07-19T12:00:00Z");
@@ -162,11 +165,12 @@ function commitAt(
 
 function writeConfig(
     repoPath: string,
-    tickets?: SpanicalUserConfig["tickets"]
+    tickets?: SpanicalUserConfig["tickets"],
+    additionalRepos: SpanicalUserConfig["repos"] = []
 ): { cfgDir: string; cfgFile: string } {
     const cfgDir = mkdtempSync(join(tmpdir(), "spanical-pipe-cfg-"));
     const config: SpanicalUserConfig = {
-        repos: [{ name: "web-app", path: repoPath }],
+        repos: [{ name: "web-app", path: repoPath }, ...additionalRepos],
         authors: {
             "dev-one": { emails: ["dev-one@example.com"] },
             "dev-two": { emails: ["dev-two@example.com"] },
@@ -201,6 +205,23 @@ function buildFixture(): { repo: string; cfgDir: string; cfgFile: string } {
         "2026-07-11T10:00:00Z",
         { "src/api.ts": API_TS },
         "feat: api"
+    );
+    const { cfgDir, cfgFile } = writeConfig(repo);
+    return { repo, cfgDir, cfgFile };
+}
+
+function buildNoSccFixture(): {
+    repo: string;
+    cfgDir: string;
+    cfgFile: string;
+} {
+    const repo = initRepo();
+    commitAt(
+        repo,
+        DEV_ONE,
+        "2026-07-10T10:00:00Z",
+        { ".gitkeep": "" },
+        "chore: keep empty repository"
     );
     const { cfgDir, cfgFile } = writeConfig(repo);
     return { repo, cfgDir, cfgFile };
@@ -393,6 +414,194 @@ test.skipIf(SCC_ON_PATH === null)(
         }
     }
 );
+
+test.skipIf(SCC_ON_PATH === null)(
+    "runSize reports zero for a measured boundary without code data",
+    async () => {
+        const { repo, cfgDir, cfgFile } = buildNoSccFixture();
+        try {
+            const run = await resolveRun(cfgFile, {
+                since: "2026-06-01",
+                format: "md",
+            });
+
+            const markdown = await runSize(run, cfgFile, NOW);
+            expect(markdown).toContain("| 2026-07 | 0 | 0 |  |");
+            expect(markdown).not.toContain("No size trend:");
+        } finally {
+            cleanup([repo, cfgDir]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "runSize excludes repository history after an open window's end",
+    async () => {
+        const { repo, cfgDir, cfgFile } = buildFixture();
+        try {
+            const run = await resolveRun(cfgFile, {
+                until: "2026-06-01",
+                format: "md",
+            });
+
+            expect(await runSize(run, cfgFile, NOW)).toBe(
+                [
+                    "No size trend: no monthly boundary SCC snapshot data was available for the selected repositories.",
+                    "Note: no commit at or before the window end was available for web-app; that repository was not measured.",
+                ].join("\n\n")
+            );
+        } finally {
+            cleanup([repo, cfgDir]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "runSize snapshots a partial final month at the requested window end",
+    async () => {
+        const repo = initRepo();
+        commitAt(
+            repo,
+            DEV_ONE,
+            "2026-06-10T10:00:00Z",
+            { "src/app.ts": APP_TS },
+            "feat: app before cutoff"
+        );
+        commitAt(
+            repo,
+            DEV_TWO,
+            "2026-06-20T10:00:00Z",
+            { "src/util.ts": UTIL_TS },
+            "feat: util after cutoff"
+        );
+        const { cfgDir, cfgFile } = writeConfig(repo);
+        try {
+            const run = await resolveRun(cfgFile, {
+                since: "2026-06-01",
+                until: "2026-06-15",
+                format: "json",
+            });
+
+            await runSize(run, cfgFile, NOW);
+
+            const handle = openCache({ configPath: cfgFile });
+            try {
+                const paths = handle.db
+                    .select({ path: sccSnapshots.path })
+                    .from(sccSnapshots)
+                    .where(
+                        and(
+                            eq(sccSnapshots.repo, "web-app"),
+                            eq(sccSnapshots.month, "2026-06"),
+                            eq(sccSnapshots.isBoundary, true)
+                        )
+                    )
+                    .all()
+                    .map((row) => row.path);
+                expect(paths).toEqual(["src/app.ts"]);
+            } finally {
+                handle.sqlite.close();
+            }
+        } finally {
+            cleanup([repo, cfgDir]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "runSize discloses a selected repository without a window-end commit",
+    async () => {
+        const measuredRepo = initRepo();
+        const unmeasuredRepo = initRepo();
+        commitAt(
+            measuredRepo,
+            DEV_ONE,
+            "2026-06-10T10:00:00Z",
+            { "src/app.ts": APP_TS },
+            "feat: measured app"
+        );
+        commitAt(
+            unmeasuredRepo,
+            DEV_TWO,
+            "2026-08-01T10:00:00Z",
+            { "src/api.ts": API_TS },
+            "feat: api after cutoff"
+        );
+        const { cfgDir, cfgFile } = writeConfig(measuredRepo, undefined, [
+            { name: "api", path: unmeasuredRepo },
+        ]);
+        try {
+            const run = await resolveRun(cfgFile, {
+                since: "2026-06-01",
+                until: "2026-07-15",
+                format: "md",
+            });
+
+            const markdown = await runSize(run, cfgFile, NOW);
+
+            expect(markdown).toContain("| Month | Total code |");
+            expect(markdown).toContain(
+                "Note: no commit at or before the window end was available for api; that repository was not measured."
+            );
+        } finally {
+            cleanup([measuredRepo, unmeasuredRepo, cfgDir]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "runHotspots names every eligibility rule when no files qualify",
+    async () => {
+        const { repo, cfgDir, cfgFile } = buildNoSccFixture();
+        try {
+            const run = await resolveRun(cfgFile, {
+                since: "2026-06-01",
+                format: "table",
+            });
+
+            expect(await runHotspots(run, cfgFile, NOW)).toBe(
+                "No hotspots: no eligible non-binary, non-migration file both changed in the selected window and had at least 50 code lines in its window-end SCC snapshot."
+            );
+        } finally {
+            cleanup([repo, cfgDir]);
+        }
+    }
+);
+
+test.skipIf(SCC_ON_PATH === null)(
+    "runOwnership explains when no surviving blame rows are available",
+    async () => {
+        const { repo, cfgDir, cfgFile } = buildNoSccFixture();
+        try {
+            const run = await resolveRun(cfgFile, {
+                since: "2026-06-01",
+                format: "md",
+            });
+
+            expect(await runOwnership(run, cfgFile, NOW)).toContain(
+                "No ownership data: no surviving blame rows were available for files with at least 50 code lines."
+            );
+        } finally {
+            cleanup([repo, cfgDir]);
+        }
+    }
+);
+
+test("runTimeline explains why an open-start history has no periods", async () => {
+    const { repo, cfgDir, cfgFile } = buildFixture();
+    try {
+        const run = await resolveRun(cfgFile, {
+            until: "2026-07-18",
+            format: "md",
+        });
+
+        expect(await runTimeline(run, cfgFile, NOW)).toBe(
+            "No timeline periods: an open-start history window has no bounded periods to plot."
+        );
+    } finally {
+        cleanup([repo, cfgDir]);
+    }
+});
 
 test("runTickets refuses to run without a token and names the variable", async () => {
     const repo = initRepo();

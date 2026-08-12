@@ -254,7 +254,7 @@ test.skipIf(SCC_ON_PATH === null)(
             const content = readFileSync(artifactPath, "utf8");
             expect(content).toContain("# Engineering report");
             expect(content).toContain("Net growth");
-            expect(content).toContain("Top hotspots (refactor shortlist)");
+            expect(content).toContain("No hotspots:");
             expect(content).toContain("Bus-factor warnings:");
             expect(content).toContain("## Timeline");
             expect(content).toContain("## Contributors");
@@ -264,7 +264,7 @@ test.skipIf(SCC_ON_PATH === null)(
             expect(content).toContain("## Per-repo appendix");
             expect(content).toContain("### web-app");
 
-            expect(terminal).toContain("Top hotspots (refactor shortlist)");
+            expect(terminal).toContain("No hotspots:");
             expect(terminal).toContain("Bus-factor warnings:");
             expect(terminal).toContain("Full report ->");
             expect(terminal).not.toContain("| Author |");

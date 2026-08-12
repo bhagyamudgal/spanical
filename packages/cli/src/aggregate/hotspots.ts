@@ -26,6 +26,13 @@ function fileKey(repo: string, path: string): string {
     return `${repo}\n${path}`;
 }
 
+export function reposWithoutWindowEndSnapshot(
+    repos: string[],
+    windowEndShas: Map<string, string>
+): string[] {
+    return repos.filter((repo) => !windowEndShas.has(repo));
+}
+
 function changeFrequencyByFile(
     db: CacheDatabase,
     window: ResolvedWindow,

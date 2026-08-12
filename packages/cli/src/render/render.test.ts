@@ -1,13 +1,28 @@
 import { expect, test } from "bun:test";
 import type {
     DevPeriodRollup,
+    HotspotRow,
+    OwnershipAggregation,
     PeriodRollup,
     SizeTrendPoint,
+    TimelinePeriod,
 } from "../aggregate/types";
+import {
+    renderHotspotsReport,
+    renderOwnershipReport,
+    renderSizeReport,
+    renderTimelineReport,
+} from ".";
 import { formatCell } from "./format";
 import { renderJson } from "./json";
 import { renderMarkdown } from "./markdown";
-import { churnPeriodTable, devTable, sizeTable } from "./tables";
+import {
+    churnPeriodTable,
+    devTable,
+    hotspotsTable,
+    sizeTable,
+    timelineTable,
+} from "./tables";
 import { renderTable } from "./terminal";
 
 const churnRows: PeriodRollup[] = [
@@ -73,6 +88,50 @@ const sizeRows: SizeTrendPoint[] = [
         ],
     },
 ];
+
+const hotspotRows: HotspotRow[] = [
+    {
+        repo: "web-app",
+        path: "src/app.ts",
+        changeFrequency: 3,
+        complexity: 8,
+        freqNorm: 1,
+        cxNorm: 0.75,
+        score: 0.75,
+        ownerCount: 2,
+    },
+];
+
+const timelineRows: TimelinePeriod[] = [
+    {
+        period: "2025-07",
+        net: 10,
+        throughput: 20,
+        commits: 2,
+        activeDevs: 1,
+        events: [],
+    },
+];
+
+const sharedOwnership: OwnershipAggregation = {
+    files: [
+        {
+            repo: "web-app",
+            path: "src/app.ts",
+            totalLines: 100,
+            ownerCount: 2,
+            primaryOwner: "dev-one",
+            primaryShare: 0.6,
+            isSoleOwned: false,
+            soleOwner: null,
+            shares: [
+                { author: "dev-one", survivingLines: 60, share: 0.6 },
+                { author: "dev-two", survivingLines: 40, share: 0.4 },
+            ],
+        },
+    ],
+    busFactor: [],
+};
 
 test("formatCell renders null, integers, and decimals", () => {
     expect(formatCell(null)).toBe("-");
@@ -152,4 +211,123 @@ test("renderTable output contains the column labels", () => {
     expect(output).toContain("Period");
     expect(output).toContain("Commits");
     expect(output).toContain("Migrations");
+});
+
+test("empty insight reports explain the measured state without changing JSON", () => {
+    expect(
+        renderHotspotsReport("md", [], {
+            minFileLines: 50,
+            unmeasuredRepos: [],
+        })
+    ).toBe(
+        "No hotspots: no eligible non-binary, non-migration file both changed in the selected window and had at least 50 code lines in its window-end SCC snapshot."
+    );
+    expect(renderSizeReport("table", [], { unmeasuredRepos: [] })).toBe(
+        "No size trend: no monthly boundary SCC snapshot data was available for the selected repositories."
+    );
+    expect(renderTimelineReport("md", [], { windowStart: null })).toBe(
+        "No timeline periods: an open-start history window has no bounded periods to plot."
+    );
+    expect(
+        renderOwnershipReport(
+            "table",
+            { files: [], busFactor: [] },
+            { minFileLines: 50, busFactorThreshold: 0.8 }
+        )
+    ).toContain(
+        "No ownership data: no surviving blame rows were available for files with at least 50 code lines."
+    );
+
+    expect(
+        renderHotspotsReport("json", [], {
+            minFileLines: 50,
+            unmeasuredRepos: ["web-app"],
+        })
+    ).toBe("[]");
+    expect(renderSizeReport("json", [], { unmeasuredRepos: ["web-app"] })).toBe(
+        "[]"
+    );
+    expect(renderTimelineReport("json", [], { windowStart: null })).toBe("[]");
+    expect(
+        JSON.parse(
+            renderOwnershipReport(
+                "json",
+                { files: [], busFactor: [] },
+                { minFileLines: 50, busFactorThreshold: 0.8 }
+            )
+        )
+    ).toEqual({ files: [], busFactor: [] });
+});
+
+test("ownership keeps file rows when only the bus-factor map is empty", () => {
+    const output = renderOwnershipReport("md", sharedOwnership, {
+        minFileLines: 50,
+        busFactorThreshold: 0.8,
+    });
+
+    expect(output).toContain(
+        "| web-app/src/app.ts | 100 | dev-one | 60% | 2 | - |"
+    );
+    expect(output).toContain(
+        "No bus-factor warnings: no file met the 80% sole-ownership threshold."
+    );
+    expect(output).not.toContain("| Repo | Directory | Sole-owned files |");
+});
+
+test("hotspots disclose repositories without a window-end snapshot", () => {
+    expect(
+        renderHotspotsReport("md", [], {
+            minFileLines: 50,
+            unmeasuredRepos: ["web-app"],
+        })
+    ).toContain(
+        "Note: no commit at or before the window end was available for web-app; that repository was not measured."
+    );
+});
+
+test("size reports disclose repositories without a window-end snapshot", () => {
+    expect(
+        renderSizeReport("md", sizeRows, { unmeasuredRepos: ["api"] })
+    ).toContain(
+        "Note: no commit at or before the window end was available for api; that repository was not measured."
+    );
+});
+
+test("populated insight reports preserve the existing tables", () => {
+    expect(
+        renderHotspotsReport("md", hotspotRows, {
+            minFileLines: 50,
+            unmeasuredRepos: [],
+        })
+    ).toBe(renderMarkdown(hotspotsTable(hotspotRows)));
+    expect(renderSizeReport("md", sizeRows, { unmeasuredRepos: [] })).toBe(
+        renderMarkdown(sizeTable(sizeRows))
+    );
+    expect(
+        renderTimelineReport("md", timelineRows, {
+            windowStart: new Date("2025-07-01T00:00:00Z"),
+        })
+    ).toBe(renderMarkdown(timelineTable(timelineRows)));
+    const ownershipOutput = renderOwnershipReport(
+        "md",
+        {
+            ...sharedOwnership,
+            busFactor: [
+                {
+                    repo: "web-app",
+                    dir: "src",
+                    soleOwnedCount: 1,
+                    owners: ["dev-one"],
+                },
+            ],
+        },
+        { minFileLines: 50, busFactorThreshold: 0.8 }
+    );
+    expect(ownershipOutput).toContain(
+        "| web-app/src/app.ts | 100 | dev-one | 60% | 2 | - |"
+    );
+    expect(ownershipOutput).toContain("| web-app | src | 1 | dev-one |");
+    expect(ownershipOutput).toContain(
+        "ownership credits every surviving line to its single git blame author"
+    );
 });

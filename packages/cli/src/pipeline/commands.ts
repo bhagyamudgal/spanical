@@ -8,6 +8,7 @@ import {
     aggregateSizeTrend,
     aggregateTickets,
     aggregateTimeline,
+    reposWithoutWindowEndSnapshot,
 } from "../aggregate";
 import { openCache } from "../cache/open";
 import type { ResolvedRun } from "../cli/resolve-run";
@@ -20,14 +21,14 @@ import {
 import {
     churnPeriodTable,
     devTable,
-    hotspotsTable,
     renderContributorsReport,
     renderData,
+    renderHotspotsReport,
     renderOwnershipReport,
     renderReviewsReport,
+    renderSizeReport,
     renderTicketsReport,
-    sizeTable,
-    timelineTable,
+    renderTimelineReport,
 } from "../render";
 import {
     ensureBaselineSnapshots,
@@ -88,7 +89,9 @@ export async function runTimeline(
                 path: repo.path,
             })),
         });
-        return renderData(run.format, timelineTable(rows), rows);
+        return renderTimelineReport(run.format, rows, {
+            windowStart: run.window.start,
+        });
     } finally {
         handle.sqlite.close();
     }
@@ -150,9 +153,19 @@ export async function runSize(
     await ensureExtracted(run, configPath, now);
     const handle = openCache({ configPath });
     try {
-        await ensureMonthlySnapshots(handle.db, run);
-        const rows = aggregateSizeTrend(handle.db, { repos: repoNames(run) });
-        return renderData(run.format, sizeTable(rows), rows);
+        const { months, snapshots, windowEndShas } =
+            await ensureMonthlySnapshots(handle.db, run);
+        const rows = aggregateSizeTrend(handle.db, {
+            repos: repoNames(run),
+            months,
+            snapshots,
+        });
+        return renderSizeReport(run.format, rows, {
+            unmeasuredRepos: reposWithoutWindowEndSnapshot(
+                repoNames(run),
+                windowEndShas
+            ),
+        });
     } finally {
         handle.sqlite.close();
     }
@@ -173,7 +186,10 @@ export async function runOwnership(
             repos: repoNames(run),
             busFactorThreshold: config.hotspot.busFactorThreshold,
         });
-        return renderOwnershipReport(run.format, result);
+        return renderOwnershipReport(run.format, result, {
+            minFileLines: config.hotspot.minFileLines,
+            busFactorThreshold: config.hotspot.busFactorThreshold,
+        });
     } finally {
         handle.sqlite.close();
     }
@@ -264,14 +280,21 @@ export async function runHotspots(
         await ensureMonthlySnapshots(handle.db, run);
         await ensureOwnership(handle.db, run, config);
         const windowEndShas = await ensureWindowEndSnapshot(handle.db, run);
+        const repos = repoNames(run);
         const rows = aggregateHotspots(handle.db, {
             window: run.window,
-            repos: repoNames(run),
+            repos,
             minFileLines: config.hotspot.minFileLines,
             busFactorThreshold: config.hotspot.busFactorThreshold,
             windowEndShas,
         });
-        return renderData(run.format, hotspotsTable(rows), rows);
+        return renderHotspotsReport(run.format, rows, {
+            minFileLines: config.hotspot.minFileLines,
+            unmeasuredRepos: reposWithoutWindowEndSnapshot(
+                repos,
+                windowEndShas
+            ),
+        });
     } finally {
         handle.sqlite.close();
     }

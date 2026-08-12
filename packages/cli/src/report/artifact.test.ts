@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { eq } from "drizzle-orm";
 import {
     aggregateAll,
     aggregateComplexityAttribution,
@@ -513,7 +514,9 @@ function buildArtifact(
         complexity,
         timeline: [],
         perRepoInsights,
+        minFileLines: MIN_FILE_LINES,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
+        windowEndShas: WINDOW_END_SHAS,
         tickets:
             refresh === null
                 ? null
@@ -788,7 +791,8 @@ function seedWebOnlyTickets(handle: ReturnType<typeof openCache>): void {
 async function buildMultiRepoArtifact(
     handle: ReturnType<typeof openCache>,
     dir: string,
-    refresh: TicketRefresh | null = null
+    refresh: TicketRefresh | null = null,
+    windowEndShas: Map<string, string> = MULTI_WINDOW_END_SHAS
 ): Promise<string> {
     const { db } = handle;
     const repos = ["web", "api"];
@@ -810,7 +814,7 @@ async function buildMultiRepoArtifact(
         repos,
         minFileLines: MIN_FILE_LINES,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
-        windowEndShas: MULTI_WINDOW_END_SHAS,
+        windowEndShas,
     });
     const ownership = aggregateOwnership(db, {
         repos,
@@ -823,7 +827,7 @@ async function buildMultiRepoArtifact(
         timezone: "UTC",
         minFileLines: MIN_FILE_LINES,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
-        windowEndShas: MULTI_WINDOW_END_SHAS,
+        windowEndShas,
         baselineShas: BASELINE_SHAS,
         perDev: contributors,
     });
@@ -849,7 +853,7 @@ async function buildMultiRepoArtifact(
                     repos: [repo],
                     minFileLines: MIN_FILE_LINES,
                     busFactorThreshold: BUS_FACTOR_THRESHOLD,
-                    windowEndShas: MULTI_WINDOW_END_SHAS,
+                    windowEndShas,
                 }),
                 ownership: aggregateOwnership(db, {
                     repos: [repo],
@@ -862,7 +866,7 @@ async function buildMultiRepoArtifact(
                     timezone: "UTC",
                     minFileLines: MIN_FILE_LINES,
                     busFactorThreshold: BUS_FACTOR_THRESHOLD,
-                    windowEndShas: MULTI_WINDOW_END_SHAS,
+                    windowEndShas,
                     baselineShas: BASELINE_SHAS,
                     perDev: repoContributors,
                 }),
@@ -884,7 +888,9 @@ async function buildMultiRepoArtifact(
         complexity,
         timeline,
         perRepoInsights,
+        minFileLines: MIN_FILE_LINES,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
+        windowEndShas,
         tickets:
             refresh === null
                 ? null
@@ -1050,6 +1056,53 @@ test("buildReportArtifact per-repo appendix repeats every section per repo", () 
     }
 });
 
+test("buildReportArtifact explains empty insight sections in every view", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        handle.db.delete(sccSnapshots).run();
+        handle.db.delete(fileOwnership).run();
+        const artifact = buildArtifact(handle);
+
+        const hotspotsMessage =
+            "No hotspots: no eligible non-binary, non-migration file both changed in the selected window and had at least 10 code lines in its window-end SCC snapshot.";
+        const ownershipMessage =
+            "No ownership data: no surviving blame rows were available for files with at least 10 code lines.";
+        const timelineMessage =
+            "No timeline periods were available for the selected window.";
+        const sizeMessage =
+            "No size trend: no monthly boundary SCC snapshot data was available for the selected repositories.";
+        const headline = artifact.slice(
+            0,
+            artifact.indexOf("## Activity by period")
+        );
+
+        expect(headline).toContain(hotspotsMessage);
+        expect(headline).not.toContain("Top hotspots (refactor shortlist)");
+        expect(artifact).toContain(`## Hotspots\n\n${hotspotsMessage}`);
+        expect(artifact).toContain(`#### Hotspots\n\n${hotspotsMessage}`);
+        expect(artifact).toContain(
+            `## Ownership & bus-factor\n\n${ownershipMessage}`
+        );
+        expect(artifact).toContain(
+            `#### Ownership & bus-factor\n\n${ownershipMessage}`
+        );
+        expect(artifact).toContain(`## Timeline\n\n${timelineMessage}`);
+        expect(artifact).toContain(`#### Timeline\n\n${timelineMessage}`);
+        expect(artifact).toContain(`## Size & complexity\n\n${sizeMessage}`);
+
+        expect(artifact).not.toContain("| Path | Change freq |");
+        expect(artifact).not.toContain("| Path | Lines | Primary owner |");
+        expect(artifact).not.toContain(
+            "| Repo | Directory | Sole-owned files |"
+        );
+        expect(artifact).not.toContain("| Month | Total code |");
+        expect(artifact).not.toContain("| Period | Net | Churn |");
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test("buildReportArtifact scopes each repo's appendix to that repo alone", async () => {
     const { handle, dir } = seedMultiRepoFixture();
     try {
@@ -1068,6 +1121,7 @@ test("buildReportArtifact scopes each repo's appendix to that repo alone", async
         expect(combinedHotspots).toContain(
             "| api/src/route.ts | 2 | 8 | 0.750 | 1 |"
         );
+        expect(artifact).toContain("| 2025-07 | 400 | 24 | TypeScript 400 |");
 
         const appendix = artifact.slice(
             artifact.indexOf("## Per-repo appendix")
@@ -1090,11 +1144,62 @@ test("buildReportArtifact scopes each repo's appendix to that repo alone", async
         expect(webBlock).not.toContain("api/src/route.ts");
         expect(apiBlock).toContain("api/src/route.ts");
         expect(apiBlock).not.toContain("web/src/home.ts");
+        expect(webBlock).toContain(
+            "| web/src/home.ts | 100 | dev-one | 100% | 1 | yes |"
+        );
 
         expect(webBlock).toContain("dev-one");
         expect(webBlock).not.toContain("dev-two");
         expect(apiBlock).toContain("dev-two");
         expect(apiBlock).not.toContain("dev-one");
+        expect(artifact).not.toContain("No hotspots:");
+        expect(artifact).not.toContain("No ownership data:");
+        expect(artifact).not.toContain("No size trend:");
+        expect(artifact).not.toContain("No timeline periods:");
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact marks partial combined size and unavailable per-repo size", async () => {
+    const { handle, dir } = seedMultiRepoFixture();
+    try {
+        handle.db
+            .delete(sccSnapshots)
+            .where(eq(sccSnapshots.repo, "api"))
+            .run();
+        const artifact = await buildMultiRepoArtifact(
+            handle,
+            dir,
+            null,
+            new Map([["web", "w2"]])
+        );
+        const headline = artifact.slice(
+            0,
+            artifact.indexOf("## Activity by period")
+        );
+        const size = artifact.slice(
+            artifact.indexOf("## Size & complexity"),
+            artifact.indexOf("## Migrations")
+        );
+        const appendix = artifact.slice(
+            artifact.indexOf("## Per-repo appendix")
+        );
+        const web = appendix.slice(
+            appendix.indexOf("### web"),
+            appendix.indexOf("### api")
+        );
+        const api = appendix.slice(appendix.indexOf("### api"));
+
+        expect(headline).toMatch(/Total now\s+200 LOC \(partial\)/);
+        expect(size).toContain(
+            "Note: no commit at or before the window end was available for api; that repository was not measured."
+        );
+        expect(web).toMatch(/Total now\s+200 LOC/);
+        expect(web).not.toContain("(partial)");
+        expect(api).toMatch(/Total now\s+n\/a/);
+        expect(api).not.toContain("0 LOC");
     } finally {
         handle.sqlite.close();
         rmSync(dir, { recursive: true, force: true });

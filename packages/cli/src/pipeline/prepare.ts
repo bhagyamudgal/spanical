@@ -19,6 +19,7 @@ import {
     snapshotRepo,
     snapshotSha,
     type SnapshotBoundary,
+    type SnapshotResult,
 } from "../scc";
 import { generatePeriods } from "../window";
 
@@ -73,10 +74,18 @@ export function resolveWindowStart(
 export async function ensureMonthlySnapshots(
     db: CacheDatabase,
     run: ResolvedRun
-): Promise<void> {
+): Promise<{
+    months: string[];
+    snapshots: SnapshotResult[];
+    windowEndShas: Map<string, string>;
+}> {
     const startDate = resolveWindowStart(db, run);
-    if (startDate === null) {
-        return;
+    if (startDate === null || startDate >= run.window.end) {
+        return {
+            months: [],
+            snapshots: [],
+            windowEndShas: new Map(),
+        };
     }
 
     const boundaries: SnapshotBoundary[] = generatePeriods(
@@ -84,13 +93,34 @@ export async function ensureMonthlySnapshots(
         run.window.end,
         "month",
         run.tz
-    ).map((period) => ({ month: period.label, end: period.end }));
+    ).map((period) => ({
+        month: period.label,
+        end:
+            period.end.getTime() > run.window.end.getTime()
+                ? run.window.end
+                : period.end,
+    }));
 
     const scc = await resolveSccBinary();
+    const snapshots: SnapshotResult[] = [];
+    const windowEndShas = new Map<string, string>();
     for (const repo of run.repos) {
         const branch = await resolveDefaultBranch(repo.path, repo.branch);
-        await snapshotRepo(db, repo, branch, boundaries, scc);
+        const result = await snapshotRepo(db, repo, branch, boundaries, scc);
+        snapshots.push(result);
+        const finalSnapshot = result.snapshots.at(-1);
+        if (
+            finalSnapshot !== undefined &&
+            finalSnapshot.status !== "no-commit"
+        ) {
+            windowEndShas.set(repo.name, finalSnapshot.sha);
+        }
     }
+    return {
+        months: boundaries.map((boundary) => boundary.month),
+        snapshots,
+        windowEndShas,
+    };
 }
 
 function tipSnapshotFiles(

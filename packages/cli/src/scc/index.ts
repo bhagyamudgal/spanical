@@ -10,4 +10,5 @@ export {
     snapshotSha,
     type SnapshotBoundary,
     type SnapshotResult,
+    type SnapshotSelection,
 } from "./snapshot";
