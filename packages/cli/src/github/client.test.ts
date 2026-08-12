@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, jest, spyOn, test } from "bun:test";
 import { z } from "zod";
 import { tryCatch } from "@spanical/utils";
 import issuesFixture from "./fixtures/issues-page.json";
@@ -16,6 +16,7 @@ import type { LoginResolver } from "./identity";
 
 const TOKEN = "secret-token-value";
 const PROBE_SCHEMA = z.object({ ok: z.boolean() });
+const TEST_REQUEST_TIMEOUT_MS = 30_000;
 
 type Captured = { url: string; headers: Record<string, string>; body: string };
 
@@ -78,9 +79,216 @@ test("a successful query returns parsed data and sends a bearer token", async ()
     expect(captured[0]?.headers["Authorization"]).toBe(`Bearer ${TOKEN}`);
 });
 
+test("network failures retry until the transport succeeds", async () => {
+    let attempts = 0;
+    const signals: AbortSignal[] = [];
+    const transport: GraphQLTransport = (_url, init) => {
+        attempts += 1;
+        signals.push(init.signal);
+        if (attempts <= 2) {
+            return Promise.reject(new Error("connection reset"));
+        }
+        return Promise.resolve(
+            Response.json({ data: { ok: true } }, { status: 200 })
+        );
+    };
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+
+    try {
+        const result = await runGraphQLQuery({
+            query: "query Probe { ok }",
+            queryName: "probe",
+            variables: { cursor: null },
+            schema: PROBE_SCHEMA,
+            token: TOKEN,
+            transport,
+        });
+
+        expect(result).toEqual({ ok: true });
+        expect(attempts).toBe(3);
+        expect(signals.map((signal) => signal.aborted)).toEqual([
+            true,
+            true,
+            false,
+        ]);
+        const notices = stderr.mock.calls
+            .map((call) => String(call[0]))
+            .join("");
+        expect(notices).toContain("connection reset");
+        expect(stderr).toHaveBeenCalledTimes(2);
+    } finally {
+        stderr.mockRestore();
+    }
+});
+
+test("a stalled response body times out, aborts, and retries", async () => {
+    let attempts = 0;
+    let stalledBodyController:
+        ReadableStreamDefaultController<Uint8Array> | undefined;
+    const signals: AbortSignal[] = [];
+    const transport: GraphQLTransport = (_url, init) => {
+        attempts += 1;
+        signals.push(init.signal);
+        if (attempts === 1) {
+            const body = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    stalledBodyController = controller;
+                },
+            });
+            return Promise.resolve(new Response(body, { status: 200 }));
+        }
+        return Promise.resolve(
+            Response.json({ data: { ok: true } }, { status: 200 })
+        );
+    };
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+    jest.useFakeTimers();
+    const query = runGraphQLQuery({
+        query: "query Probe { ok }",
+        queryName: "probe",
+        variables: { cursor: null },
+        schema: PROBE_SCHEMA,
+        token: TOKEN,
+        transport,
+    });
+
+    try {
+        await Promise.resolve();
+        await Promise.resolve();
+        jest.advanceTimersByTime(TEST_REQUEST_TIMEOUT_MS);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(signals[0]?.aborted).toBe(true);
+        expect(await query).toEqual({ ok: true });
+        expect(attempts).toBe(2);
+    } finally {
+        stalledBodyController?.close();
+        jest.useRealTimers();
+        stderr.mockRestore();
+        await tryCatch(query);
+    }
+});
+
+test("a network failure while reading the response body is retried", async () => {
+    let attempts = 0;
+    const transport: GraphQLTransport = () => {
+        attempts += 1;
+        if (attempts === 1) {
+            const body = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.error(
+                        new Error("connection reset while reading")
+                    );
+                },
+            });
+            return Promise.resolve(new Response(body, { status: 200 }));
+        }
+        return Promise.resolve(
+            Response.json({ data: { ok: true } }, { status: 200 })
+        );
+    };
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+
+    try {
+        const result = await runGraphQLQuery({
+            query: "query Probe { ok }",
+            queryName: "probe",
+            variables: { cursor: null },
+            schema: PROBE_SCHEMA,
+            token: TOKEN,
+            transport,
+        });
+
+        expect(result).toEqual({ ok: true });
+        expect(attempts).toBe(2);
+    } finally {
+        stderr.mockRestore();
+    }
+});
+
+test("an exception from response validation is not retried", async () => {
+    const validationError = new Error("validation crashed");
+    const schema = z.preprocess(() => {
+        throw validationError;
+    }, PROBE_SCHEMA);
+    const { transport, captured } = respondWith(
+        JSON.stringify({ data: { ok: true } })
+    );
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+
+    try {
+        const { error } = await tryCatch(
+            runGraphQLQuery({
+                query: "query Probe { ok }",
+                queryName: "probe",
+                variables: { cursor: null },
+                schema,
+                token: TOKEN,
+                transport,
+            })
+        );
+
+        expect(captured).toHaveLength(1);
+        expect(error).toBeInstanceOf(GitHubError);
+        if (error instanceof GitHubError) {
+            expect(error.code).toBe(GITHUB_ERROR_CODES.RESPONSE_INVALID);
+            expect(error.cause).toBe(validationError);
+        }
+    } finally {
+        stderr.mockRestore();
+    }
+});
+
+test("server failures retry until the transport succeeds", async () => {
+    let attempts = 0;
+    const transport: GraphQLTransport = () => {
+        attempts += 1;
+        if (attempts <= 2) {
+            return Promise.resolve(
+                new Response("unavailable", { status: 503 })
+            );
+        }
+        return Promise.resolve(
+            Response.json({ data: { ok: true } }, { status: 200 })
+        );
+    };
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+
+    try {
+        const result = await runGraphQLQuery({
+            query: "query Probe { ok }",
+            queryName: "probe",
+            variables: { cursor: null },
+            schema: PROBE_SCHEMA,
+            token: TOKEN,
+            transport,
+        });
+
+        expect(result).toEqual({ ok: true });
+        expect(attempts).toBe(3);
+    } finally {
+        stderr.mockRestore();
+    }
+});
+
 test("a 401 becomes a coded unauthorized error that never echoes the token", async () => {
-    const { error } = await runProbe(JSON.stringify({ message: "Bad" }), 401);
+    const { error, captured } = await runProbe(
+        JSON.stringify({ message: "Bad" }),
+        401
+    );
     expect(error).toBeInstanceOf(GitHubError);
+    expect(captured).toHaveLength(1);
     if (error instanceof GitHubError) {
         expect(error.code).toBe(GITHUB_ERROR_CODES.UNAUTHORIZED);
         expect(error.message).not.toContain(TOKEN);
@@ -88,11 +296,12 @@ test("a 401 becomes a coded unauthorized error that never echoes the token", asy
 });
 
 test("a non-ok status becomes a request failure carrying the body, not the token", async () => {
-    const { error } = await runProbe(
+    const { error, captured } = await runProbe(
         JSON.stringify({ message: "We couldn't respond in time." }),
         502
     );
     expect(error).toBeInstanceOf(GitHubError);
+    expect(captured).toHaveLength(4);
     if (error instanceof GitHubError) {
         expect(error.code).toBe(GITHUB_ERROR_CODES.REQUEST_FAILED);
         expect(error.message).toContain("502");
@@ -114,7 +323,7 @@ test("a body that is not JSON becomes an invalid-response error", async () => {
 });
 
 test("a 200 carrying a populated errors array fails before any data is read", async () => {
-    const { error } = await runProbe(
+    const { error, captured } = await runProbe(
         JSON.stringify({
             data: { ok: true },
             errors: [
@@ -126,6 +335,7 @@ test("a 200 carrying a populated errors array fails before any data is read", as
         })
     );
     expect(error).toBeInstanceOf(GitHubError);
+    expect(captured).toHaveLength(1);
     if (error instanceof GitHubError) {
         expect(error.code).toBe(GITHUB_ERROR_CODES.QUERY_FAILED);
         expect(error.message).toContain("Could not resolve to a Repository");
@@ -133,6 +343,92 @@ test("a 200 carrying a populated errors array fails before any data is read", as
         expect(error.artifactMessage).toBe(
             "GitHub GraphQL probe returned 1 error(s)."
         );
+    }
+});
+
+test("a secondary rate limit waits for Retry-After before retrying", async () => {
+    let attempts = 0;
+    const transport: GraphQLTransport = () => {
+        attempts += 1;
+        if (attempts === 1) {
+            return Promise.resolve(
+                new Response("secondary rate limit", {
+                    status: 403,
+                    headers: { "Retry-After": "2" },
+                })
+            );
+        }
+        return Promise.resolve(
+            Response.json({ data: { ok: true } }, { status: 200 })
+        );
+    };
+    const sleep = spyOn(Bun, "sleep").mockImplementation(() =>
+        Promise.resolve()
+    );
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+
+    try {
+        const result = await runGraphQLQuery({
+            query: "query Probe { ok }",
+            queryName: "probe",
+            variables: { cursor: null },
+            schema: PROBE_SCHEMA,
+            token: TOKEN,
+            transport,
+        });
+
+        expect(result).toEqual({ ok: true });
+        expect(attempts).toBe(2);
+        expect(sleep).toHaveBeenCalledWith(2_000);
+        expect(
+            stderr.mock.calls.map((call) => String(call[0])).join("")
+        ).toContain("waiting 2000ms");
+    } finally {
+        sleep.mockRestore();
+        stderr.mockRestore();
+    }
+});
+
+test("a 403 without Retry-After is not retried", async () => {
+    const { error, captured } = await runProbe("forbidden", 403);
+
+    expect(error).toBeInstanceOf(GitHubError);
+    expect(captured).toHaveLength(1);
+});
+
+test("a 403 with a blank Retry-After is not retried", async () => {
+    let attempts = 0;
+    const transport: GraphQLTransport = () => {
+        attempts += 1;
+        return Promise.resolve(
+            new Response("forbidden", {
+                status: 403,
+                headers: { "Retry-After": " " },
+            })
+        );
+    };
+    const stderr = spyOn(process.stderr, "write").mockImplementation(
+        () => true
+    );
+
+    try {
+        const { error } = await tryCatch(
+            runGraphQLQuery({
+                query: "query Probe { ok }",
+                queryName: "probe",
+                variables: { cursor: null },
+                schema: PROBE_SCHEMA,
+                token: TOKEN,
+                transport,
+            })
+        );
+
+        expect(error).toBeInstanceOf(GitHubError);
+        expect(attempts).toBe(1);
+    } finally {
+        stderr.mockRestore();
     }
 });
 

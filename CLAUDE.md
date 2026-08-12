@@ -129,6 +129,8 @@ Use the `tryCatch` utility from `lib/try-catch.ts` instead of try-catch blocks:
 ```typescript
 const { data: user, error } = await tryCatch(getUser(id));
 const { data: config, error } = tryCatchSync(() => JSON.parse(jsonString));
+const retryResult = await tryCatchRetry(() => fetch(url), { maxRetries: 3 });
+const timeoutResult = await tryCatchWithTimeout(fetch(url), 5000);
 ```
 
 ## Comments

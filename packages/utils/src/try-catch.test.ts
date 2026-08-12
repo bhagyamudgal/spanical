@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { tryCatch, tryCatchSync } from "./try-catch";
+import {
+    tryCatch,
+    tryCatchRetry,
+    tryCatchSync,
+    tryCatchWithTimeout,
+} from "./try-catch";
 
 test("tryCatch resolves data on success", async () => {
     const result = await tryCatch(Promise.resolve(42));
@@ -62,4 +67,85 @@ test("tryCatchSync wraps non-Error throws with context", () => {
     });
     expect(result.error?.message).toContain("EPARSE");
     expect(result.error?.cause).toEqual({ code: "EPARSE" });
+});
+
+test("tryCatchWithTimeout returns an error when the promise does not settle", async () => {
+    const result = await tryCatchWithTimeout(
+        new Promise<never>(() => undefined),
+        10
+    );
+
+    expect(result.data).toBeNull();
+    expect(result.error?.message).toBe("Operation timed out after 10ms");
+});
+
+test("tryCatchWithTimeout returns data when the promise settles in time", async () => {
+    const result = await tryCatchWithTimeout(Promise.resolve(42), 100);
+
+    expect(result.data).toBe(42);
+    expect(result.error).toBeNull();
+});
+
+test("tryCatchRetry returns data after a later attempt succeeds", async () => {
+    let attempts = 0;
+    const result = await tryCatchRetry(
+        () => {
+            attempts += 1;
+            return attempts < 3
+                ? Promise.reject(new Error("try again"))
+                : Promise.resolve(42);
+        },
+        { maxRetries: 3 }
+    );
+
+    expect(attempts).toBe(3);
+    expect(result.data).toBe(42);
+    expect(result.error).toBeNull();
+});
+
+test("tryCatchRetry returns the final error after exhausting retries", async () => {
+    let attempts = 0;
+    const result = await tryCatchRetry(
+        () => {
+            attempts += 1;
+            throw new Error(`failure ${attempts}`);
+        },
+        { maxRetries: 2 }
+    );
+
+    expect(attempts).toBe(3);
+    expect(result.data).toBeNull();
+    expect(result.error?.message).toBe("failure 3");
+});
+
+test("tryCatchRetry returns errors thrown by retry callbacks", async () => {
+    const callbackError = new Error("retry notice failed");
+    const result = await tryCatchRetry(
+        () => Promise.reject(new Error("operation failed")),
+        {
+            maxRetries: 1,
+            onRetry() {
+                throw callbackError;
+            },
+        }
+    );
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBe(callbackError);
+});
+
+test("tryCatchRetry returns errors thrown while classifying a retry", async () => {
+    const callbackError = new Error("retry classification failed");
+    const result = await tryCatchRetry(
+        () => Promise.reject(new Error("operation failed")),
+        {
+            maxRetries: 1,
+            shouldRetry() {
+                throw callbackError;
+            },
+        }
+    );
+
+    expect(result.data).toBeNull();
+    expect(result.error).toBe(callbackError);
 });
