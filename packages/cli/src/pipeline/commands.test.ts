@@ -17,7 +17,13 @@ import type { globalFlags } from "../cli/global-flags";
 import { resolveRunConfig, type ResolvedRun } from "../cli/resolve-run";
 import type { SpanicalUserConfig } from "../config/schema";
 import { writeRendered } from "../render";
-import { runChurn, runContributors, runSize, runTickets } from "./commands";
+import {
+    runChurn,
+    runContributors,
+    runReviews,
+    runSize,
+    runTickets,
+} from "./commands";
 
 const NOW = new Date("2026-07-19T12:00:00Z");
 const SCC_ON_PATH = Bun.which("scc");
@@ -407,6 +413,41 @@ test("runTickets refuses to run without a token and names the variable", async (
         if (configuredToken !== undefined) {
             process.env.GITHUB_TOKEN = configuredToken;
         }
+        cleanup([repo, cfgDir]);
+    }
+});
+
+test("runReviews refuses to run without a token and names the variable", async () => {
+    const repo = initRepo();
+    const { cfgDir, cfgFile } = writeConfig(repo, {
+        source: "github",
+        github: { token: "env:GITHUB_TOKEN", includeIssues: false },
+    });
+    const configuredToken = process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    try {
+        const run = await resolveRun(cfgFile, { since: "2026-06-01" });
+        const { error } = await tryCatch(runReviews(run, cfgFile, NOW));
+
+        expect(error).not.toBeNull();
+        expect(error?.message).toContain("GITHUB_TOKEN is not set");
+    } finally {
+        if (configuredToken !== undefined) {
+            process.env.GITHUB_TOKEN = configuredToken;
+        }
+        cleanup([repo, cfgDir]);
+    }
+});
+
+test("runReviews explains an unconfigured ticket layer before asking for a token", async () => {
+    const repo = initRepo();
+    const { cfgDir, cfgFile } = writeConfig(repo);
+    try {
+        const run = await resolveRun(cfgFile, { since: "2026-06-01" });
+        const { error } = await tryCatch(runReviews(run, cfgFile, NOW));
+
+        expect(error?.message).toContain("No tickets section");
+    } finally {
         cleanup([repo, cfgDir]);
     }
 });

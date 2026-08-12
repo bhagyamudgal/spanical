@@ -4,6 +4,7 @@ import {
     aggregateOwnership,
     aggregatePerDev,
     aggregatePerPeriod,
+    aggregateReviews,
     aggregateSizeTrend,
     aggregateTickets,
     aggregateTimeline,
@@ -23,6 +24,7 @@ import {
     renderContributorsReport,
     renderData,
     renderOwnershipReport,
+    renderReviewsReport,
     renderTicketsReport,
     sizeTable,
     timelineTable,
@@ -208,6 +210,40 @@ export async function runTickets(
             includeIssues: ticketsConfig.github.includeIssues,
         });
         return renderTicketsReport(run.format, result, {
+            window: run.window.label,
+            repos: repoNames(run),
+        });
+    } finally {
+        handle.sqlite.close();
+    }
+}
+
+export async function runReviews(
+    run: ResolvedRun,
+    configPath: string | undefined,
+    now: Date
+): Promise<string> {
+    requireTicketsConfig(run.config);
+    const token = resolveGithubToken();
+    await ensureExtracted(run, configPath, now);
+    const handle = openCache({ configPath });
+    try {
+        const sync = await syncTickets(handle.db, run.config, {
+            token,
+            now,
+            isCacheEnabled: run.cache,
+        });
+        if (sync.unmappedLogins.length > 0) {
+            process.stderr.write(
+                `${formatUnmappedLoginsWarning(sync.unmappedLogins)}\n`
+            );
+        }
+        const result = aggregateReviews(handle.db, {
+            window: run.window,
+            repos: repoNames(run),
+            timezone: run.tz,
+        });
+        return renderReviewsReport(run.format, result, {
             window: run.window.label,
             repos: repoNames(run),
         });

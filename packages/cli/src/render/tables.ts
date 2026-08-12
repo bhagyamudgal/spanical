@@ -1,14 +1,20 @@
-import { PER_DEV_METRICS, TICKET_METRICS } from "../aggregate/metrics";
+import {
+    PER_DEV_METRICS,
+    REVIEW_METRICS,
+    TICKET_METRICS,
+} from "../aggregate/metrics";
 import type {
     BusFactorRow,
     DevComplexityRollup,
     DevPeriodRollup,
+    DevReviewRollup,
     DevTicketRollup,
     HotspotRow,
     LanguageSize,
     OwnershipRow,
     PeriodRollup,
     PullRequestSizeBucket,
+    ReviewLatency,
     SizeTrendPoint,
     TicketAttribution,
     TimelinePeriod,
@@ -24,6 +30,15 @@ const EVENT_SEPARATOR = "; ";
 
 export function toPercent(share: number): string {
     return `${Math.round(share * PERCENT_SCALE)}%`;
+}
+
+// The basis mix travels with every latency figure, so a median built mostly
+// from the "created" fallback can never read as one built from real requests.
+export function formatLatencyBasis(latency: ReviewLatency): string | null {
+    if (latency.fallbackShare === null) {
+        return null;
+    }
+    return `${latency.requestedSamples} requested, ${latency.createdSamples} created, ${toPercent(latency.fallbackShare)} fallback`;
 }
 
 export function churnPeriodTable(rows: PeriodRollup[]): TableModel {
@@ -115,6 +130,29 @@ export function ticketDevTable(
             reverted: row.reverted,
             cycleTimeMedianHours: row.cycleTimeMedianHours,
             pullRequestSizeMedian: row.pullRequestSizeMedian,
+        })),
+    };
+}
+
+export function reviewDevTable(rows: DevReviewRollup[]): TableModel {
+    const metricColumns: TableColumn[] = REVIEW_METRICS.map((metric) => ({
+        key: metric.key,
+        label: metric.label,
+        align: metric.key === "latencyBasis" ? "left" : "right",
+        flag: metric.flag,
+    }));
+
+    return {
+        title: "Review load",
+        columns: [
+            { key: "author", label: "Author", align: "left" },
+            ...metricColumns,
+        ],
+        rows: rows.map((row) => ({
+            author: row.author,
+            reviewsGiven: row.reviewsGiven,
+            latencyMedianHours: row.latencyMedianHours,
+            latencyBasis: formatLatencyBasis(row),
         })),
     };
 }

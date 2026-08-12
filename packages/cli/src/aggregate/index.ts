@@ -1,9 +1,11 @@
 export {
     PER_DEV_METRICS,
+    REVIEW_METRICS,
     TICKET_METRICS,
     type MetricDefinition,
     type PerDevMetricKey,
     type ReadFlag,
+    type ReviewMetricKey,
     type TicketMetricKey,
 } from "./metrics";
 export type {
@@ -12,11 +14,14 @@ export type {
     ComplexityAttribution,
     DevComplexityRollup,
     DevPeriodRollup,
+    DevReviewRollup,
     DevTicketRollup,
     DominantCommitSubtype,
+    ExcludedReviews,
     FullAggregation,
     HotspotRow,
     LanguageSize,
+    LatencyBasis,
     MigrationChurn,
     OwnershipAggregation,
     OwnershipAuthorShare,
@@ -24,6 +29,10 @@ export type {
     PeriodRollup,
     PullRequestSizeBucket,
     RepoAggregation,
+    ReviewAggregation,
+    ReviewCoverage,
+    ReviewLatency,
+    ReviewTeamRollup,
     SizeTrendPoint,
     SyncFloor,
     TicketAggregation,
@@ -48,3 +57,4 @@ export {
     HOTSPOT_CONTRIBUTION_TOP_N,
 } from "./complexity";
 export { aggregateTickets } from "./tickets";
+export { aggregateReviews } from "./reviews";

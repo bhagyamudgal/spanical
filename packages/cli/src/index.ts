@@ -5,6 +5,7 @@ import { contributorsCommand } from "./commands/contributors";
 import { hotspotsCommand } from "./commands/hotspots";
 import { ownershipCommand } from "./commands/ownership";
 import { reportCommand } from "./commands/report";
+import { reviewsCommand } from "./commands/reviews";
 import { sizeCommand } from "./commands/size";
 import { ticketsCommand } from "./commands/tickets";
 import { timelineCommand } from "./commands/timeline";
@@ -19,6 +20,7 @@ run(
         ownershipCommand,
         hotspotsCommand,
         ticketsCommand,
+        reviewsCommand,
         timelineCommand,
         cacheCommand,
     ],
