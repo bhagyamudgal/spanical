@@ -10,6 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { openCache } from "../cache/open";
+import { fileChanges } from "../cache/schema";
 import type { SpanicalUserConfig } from "../config/schema";
 
 const INDEX_PATH = join(import.meta.dir, "..", "index.ts");
@@ -23,6 +25,7 @@ const DEV_ONE_ALT = { name: "dev-one-alt", email: "dev-one-alt@example.com" };
 const DEV_TWO = { name: "dev-two", email: "dev-two@example.com" };
 
 const devRowsSchema = z.array(z.object({ author: z.string() }));
+const churnRowsSchema = z.array(z.object({ throughput: z.number() }));
 
 type Author = { name: string; email: string };
 
@@ -273,6 +276,64 @@ test("--repo scopes a run started from a repository with no config file", () => 
         expect(distinctAuthors(result)).toEqual([DEV_TWO.email]);
     } finally {
         cleanup([cwdRepo, otherRepo]);
+    }
+});
+
+test("--exclude re-extracts a cached repo and changes churn totals", () => {
+    const repo = initRepo();
+    try {
+        commit(
+            repo,
+            DEV_ONE,
+            {
+                "src/included.ts": "1\n",
+                "src/generated/excluded.ts": "2\n",
+            },
+            "feat: add generated source"
+        );
+        writeConfig(repo, {
+            repos: [{ name: "web-app", path: repo }],
+            exclude: [],
+        });
+
+        const warmup = runCli(repo, ["churn", "--format", "json"]);
+        const excluded = runCli(repo, [
+            "churn",
+            "--exclude",
+            "**/generated/**",
+            "--format",
+            "json",
+        ]);
+        expect(warmup.exitCode).toBe(0);
+        expect(excluded.exitCode).toBe(0);
+
+        const warmupRows = churnRowsSchema.parse(JSON.parse(warmup.stdout));
+        const excludedRows = churnRowsSchema.parse(JSON.parse(excluded.stdout));
+        const cache = openCache({ cwd: repo });
+        const storedPaths = cache.db
+            .select({ path: fileChanges.path })
+            .from(fileChanges)
+            .all()
+            .map((row) => row.path);
+        cache.sqlite.close();
+
+        expect({
+            storedPaths,
+            warmupThroughput: warmupRows.reduce(
+                (total, row) => total + row.throughput,
+                0
+            ),
+            excludedThroughput: excludedRows.reduce(
+                (total, row) => total + row.throughput,
+                0
+            ),
+        }).toEqual({
+            storedPaths: ["src/included.ts"],
+            warmupThroughput: 2,
+            excludedThroughput: 1,
+        });
+    } finally {
+        cleanup([repo]);
     }
 });
 
