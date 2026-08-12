@@ -83,7 +83,6 @@ export async function resolveRunConfig(input: {
         cwd: input.cwd,
         repos: flagRepos,
     });
-    const repos = config.repos;
 
     const tz = flags.tz ?? config.timezone;
     if (!isValidTimeZone(tz)) {
@@ -97,12 +96,16 @@ export async function resolveRunConfig(input: {
         flags.exclude !== undefined && flags.exclude.length > 0
             ? splitList(flags.exclude)
             : config.exclude;
+    const effectiveConfig: SpanicalConfig = {
+        ...config,
+        exclude,
+    };
 
     return {
-        repos,
-        config,
+        repos: effectiveConfig.repos,
+        config: effectiveConfig,
         tz,
-        exclude,
+        exclude: effectiveConfig.exclude,
         by: flags.by ?? null,
         format: flags.format ?? DEFAULT_FORMAT,
         out: flags.out ?? null,

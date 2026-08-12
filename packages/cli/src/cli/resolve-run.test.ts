@@ -141,6 +141,7 @@ test("--exclude replaces the config exclude list", async () => {
             now: NOW,
         });
         expect(run.exclude).toEqual(["**/gen/**"]);
+        expect(run.config.exclude).toEqual(run.exclude);
     } finally {
         rmSync(dir, { recursive: true, force: true });
     }
