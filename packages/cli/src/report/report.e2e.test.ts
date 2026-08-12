@@ -359,8 +359,6 @@ test.skipIf(SCC_ON_PATH === null)(
             expect(content).toContain(
                 "Warning: the GitHub refresh did not finish, so the ticket data here may be missing anything that changed since the last complete sync"
             );
-            // The artifact is kept and shared, so it names the repo the way the
-            // config does and leaves the clone's location to stderr.
             expect(content).toContain(
                 'Reason (full detail on stderr): Repo "web-app" has no "origin" remote'
             );
@@ -374,9 +372,6 @@ test.skipIf(SCC_ON_PATH === null)(
     }
 );
 
-// The two halves of the same failure have different audiences: the operator
-// reading stderr needs to know which clone is misconfigured, the report is kept
-// and shared and must not disclose where anyone's clone lives.
 test.skipIf(SCC_ON_PATH === null)(
     "a failed refresh keeps the clone path on stderr and out of the artifact",
     () => {

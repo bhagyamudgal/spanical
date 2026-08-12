@@ -1254,7 +1254,6 @@ test("buildReportArtifact scopes the failure wording to the repos each section r
         expect(webBlock).not.toContain(
             "nothing is cached here to fall back on"
         );
-        // api has no cached tickets of its own, so it must never claim a cache.
         expect(apiBlock).toContain("nothing is cached here to fall back on");
         expect(apiBlock).not.toContain(
             "may be missing anything that changed since the last complete sync"

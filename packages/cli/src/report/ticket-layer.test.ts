@@ -159,8 +159,6 @@ test("refreshTicketCache degrades with the reason when the refresh fails", async
         expect(refresh?.failure?.reason).toContain(
             'Repo "web-app" has no "origin" remote'
         );
-        // The reason is bound for the shareable artifact, so it names the repo
-        // the config names and never where that clone sits on disk.
         expect(refresh?.failure?.reason).not.toContain(repo);
     } finally {
         handle.sqlite.close();
@@ -169,9 +167,6 @@ test("refreshTicketCache degrades with the reason when the refresh fails", async
     }
 });
 
-// Anything that is not a GitHub failure — a cache write dying on a full disk,
-// a broken git checkout — must stop the report rather than be disclosed as an
-// unreachable ticket layer and have its numbers reported as if they were whole.
 test("refreshTicketCache lets a non-GitHub failure abort the report", async () => {
     const missingRepo = join(tmpdir(), "spanical-ticket-layer-absent");
     const { handle, dir } = openFixture();
