@@ -8,6 +8,7 @@ import {
     fileChanges,
     fileOwnership,
     lineDeaths,
+    reworkCaptures,
     sccSnapshots,
 } from "../cache/schema";
 import type { ResolvedRun } from "../cli/resolve-run";
@@ -374,9 +375,11 @@ function reworkCandidates(
 
 export async function ensureRework(
     db: CacheDatabase,
-    run: ResolvedRun,
-    config: SpanicalConfig
+    run: Pick<ResolvedRun, "repos">,
+    config: SpanicalConfig,
+    deps: { captureLineDeaths?: typeof captureLineDeaths } = {}
 ): Promise<void> {
+    const captureLineDeathsFn = deps.captureLineDeaths ?? captureLineDeaths;
     const resolver = seedAndResolveAuthors(db, config);
     for (const repo of run.repos) {
         const extraction = db
@@ -387,19 +390,23 @@ export async function ensureRework(
         if (!extraction) {
             continue;
         }
-        const cached = db
-            .select({ value: count() })
-            .from(lineDeaths)
-            .where(eq(lineDeaths.repo, repo.name))
+        // Only a capture that finished without failed candidates may skip:
+        // a partial capture's rows would otherwise freeze its undercount in
+        // place until the next re-extraction.
+        const marker = db
+            .select({ failedCandidates: reworkCaptures.failedCandidates })
+            .from(reworkCaptures)
+            .where(eq(reworkCaptures.repo, repo.name))
             .get();
-        if ((cached?.value ?? 0) > 0) {
+        if (marker && marker.failedCandidates === 0) {
             continue;
         }
         const candidates = reworkCandidates(db, repo.name);
         if (candidates.length === 0) {
+            recordCaptureMarker(db, repo.name, 0);
             continue;
         }
-        const capture = await captureLineDeaths({
+        const capture = await captureLineDeathsFn({
             repoName: repo.name,
             repoPath: repo.path,
             candidates,
@@ -413,29 +420,46 @@ export async function ensureRework(
                 `warning: rework attribution produced no line deaths for ${repo.name} across ${candidates.length} candidate commit(s) (${capture.failedCandidates} failed); rework lines may be undercounted.\n`
             );
         }
-        if (capture.records.length === 0) {
-            continue;
+        if (capture.records.length > 0) {
+            const rows: LineDeathInsertRow[] = capture.records.map(
+                (record) => ({
+                    repo: record.repo,
+                    sha: record.sha,
+                    path: record.path,
+                    victimSha: record.victimSha,
+                    victimAuthorId: record.victimAuthorId,
+                    victimAuthoredAt: record.victimAuthoredAt,
+                    lines: record.lines,
+                })
+            );
+            db.transaction((tx) => {
+                for (
+                    let start = 0;
+                    start < rows.length;
+                    start += INSERT_BATCH_SIZE
+                ) {
+                    tx.insert(lineDeaths)
+                        .values(rows.slice(start, start + INSERT_BATCH_SIZE))
+                        .onConflictDoNothing()
+                        .run();
+                }
+            });
         }
-        const rows: LineDeathInsertRow[] = capture.records.map((record) => ({
-            repo: record.repo,
-            sha: record.sha,
-            path: record.path,
-            victimSha: record.victimSha,
-            victimAuthorId: record.victimAuthorId,
-            victimAuthoredAt: record.victimAuthoredAt,
-            lines: record.lines,
-        }));
-        db.transaction((tx) => {
-            for (
-                let start = 0;
-                start < rows.length;
-                start += INSERT_BATCH_SIZE
-            ) {
-                tx.insert(lineDeaths)
-                    .values(rows.slice(start, start + INSERT_BATCH_SIZE))
-                    .onConflictDoNothing()
-                    .run();
-            }
-        });
+        recordCaptureMarker(db, repo.name, capture.failedCandidates);
     }
+}
+
+function recordCaptureMarker(
+    db: CacheDatabase,
+    repoName: string,
+    failedCandidates: number
+): void {
+    const capturedAt = Date.now();
+    db.insert(reworkCaptures)
+        .values({ repo: repoName, failedCandidates, capturedAt })
+        .onConflictDoUpdate({
+            target: reworkCaptures.repo,
+            set: { failedCandidates, capturedAt },
+        })
+        .run();
 }

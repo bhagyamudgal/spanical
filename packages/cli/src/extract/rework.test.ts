@@ -149,6 +149,45 @@ test("parseBlameLines keeps per-line victim identity in file order", () => {
     ]);
 });
 
+test("parseBlameLines captures full SHA-256 object ids without truncation", () => {
+    const sha256 = "a".repeat(64);
+    const output = lineBlock(sha256, "One", "one@example.com", 111, "first");
+
+    const lines = parseBlameLines(output);
+
+    expect(lines).toEqual([
+        {
+            sha: sha256,
+            email: "one@example.com",
+            name: "One",
+            authoredAt: 111,
+        },
+    ]);
+});
+
+test("parseBlameLines strips the caret prefix of grafted-boundary commits", () => {
+    const boundarySha = "b".repeat(40);
+    const output = [
+        `^${boundarySha} 1 1 1`,
+        "author One",
+        "author-mail <one@example.com>",
+        "author-time 111",
+        "author-tz +0000",
+        "\tboundary line",
+    ].join("\n");
+
+    const lines = parseBlameLines(output);
+
+    expect(lines).toEqual([
+        {
+            sha: boundarySha,
+            email: "one@example.com",
+            name: "One",
+            authoredAt: 111,
+        },
+    ]);
+});
+
 // Runs against real git so the diff-to-blame seam is exercised without the
 // scc gate the CLI-level e2e carries.
 test("captureLineDeaths attributes deletions against a real fixture repo", async () => {

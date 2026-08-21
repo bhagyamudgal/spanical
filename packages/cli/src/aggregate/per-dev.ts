@@ -1,6 +1,15 @@
 import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
-import { and, countDistinct, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import {
+    and,
+    countDistinct,
+    eq,
+    gte,
+    inArray,
+    lt,
+    lte,
+    sql,
+} from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import {
     authors,
@@ -98,6 +107,9 @@ function queryRework(
                     lineDeaths.victimAuthoredAt,
                     sql`${commits.authoredAt} - ${reworkWindowMs}`
                 ),
+                // A line cannot die before it was written; the bound also
+                // keeps clock-skewed or grafted victims out of the window.
+                lte(lineDeaths.victimAuthoredAt, sql`${commits.authoredAt}`),
                 bounds.repo ? eq(lineDeaths.repo, bounds.repo) : undefined,
                 bounds.repos && bounds.repos.length > 0
                     ? inArray(lineDeaths.repo, bounds.repos)

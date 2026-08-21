@@ -319,61 +319,105 @@ test("aggregatePerDev repo-qualifies filesTouched across repos sharing a path", 
     }
 });
 
-test("aggregatePerDev charges rework to the victim author inside the window only", () => {
+test("aggregatePerDev charges rework to the victim author rather than the killing commit's author", () => {
     const { handle, dir } = seedFixture();
     try {
         const { db } = handle;
-        // c2 kills on 2025-07-05. A victim born 2025-06-20 is 15 days old and
-        // inside the 21-day window; one born 2025-06-01 is 34 days out; a
-        // third death on c3 (2025-07-20) charges dev-two, but its victim is
-        // 66 days old, so the window excludes it too.
+        // c3 is authored by dev-two on 2025-07-20 and kills seven lines born
+        // 2025-06-30 (20 days old, inside the 21-day window). Charging the
+        // killer's author would land this on dev-two instead of dev-one.
         db.insert(lineDeaths)
-            .values([
-                {
-                    repo: "web-app",
-                    sha: "c2",
-                    path: "src/a.ts",
-                    victimSha: "v1",
-                    victimAuthorId: 1,
-                    victimAuthoredAt: Date.UTC(2025, 5, 20),
-                    lines: 7,
-                },
-                {
-                    repo: "web-app",
-                    sha: "c2",
-                    path: "src/b.ts",
-                    victimSha: "v2",
-                    victimAuthorId: 1,
-                    victimAuthoredAt: Date.UTC(2025, 5, 1),
-                    lines: 100,
-                },
-                {
-                    repo: "web-app",
-                    sha: "c3",
-                    path: "src/c.ts",
-                    victimSha: "v3",
-                    victimAuthorId: 2,
-                    victimAuthoredAt: Date.UTC(2025, 4, 15),
-                    lines: 50,
-                },
-            ])
+            .values({
+                repo: "web-app",
+                sha: "c3",
+                path: "src/c.ts",
+                victimSha: "v1",
+                victimAuthorId: 1,
+                victimAuthoredAt: Date.UTC(2025, 5, 30),
+                lines: 7,
+            })
             .run();
 
         const rollups = aggregatePerDev(handle.db, {
-            periods: [P1, P2],
+            periods: [P2],
             timezone: "UTC",
             repo: "web-app",
             reworkWindowDays: 21,
         });
 
-        const devOneJuly = rollups.find(
-            (rollup) => rollup.period === "2025-07" && rollup.authorId === 1
+        const byAuthor = new Map(
+            rollups.map((rollup) => [rollup.authorId, rollup.reworkLines])
         );
-        expect(devOneJuly?.reworkLines).toBe(7);
-        const devTwoJuly = rollups.find(
-            (rollup) => rollup.period === "2025-07" && rollup.authorId === 2
-        );
-        expect(devTwoJuly?.reworkLines).toBe(0);
+        expect(byAuthor.get(1)).toBe(7);
+        expect(byAuthor.get(2)).toBe(0);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregatePerDev excludes deaths older than the rework window", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const { db } = handle;
+        // c2 kills on 2025-07-05; the victim was born 2025-06-01, 34 days
+        // earlier and outside the 21-day window.
+        db.insert(lineDeaths)
+            .values({
+                repo: "web-app",
+                sha: "c2",
+                path: "src/a.ts",
+                victimSha: "v1",
+                victimAuthorId: 1,
+                victimAuthoredAt: Date.UTC(2025, 5, 1),
+                lines: 100,
+            })
+            .run();
+
+        const rollups = aggregatePerDev(handle.db, {
+            periods: [P2],
+            timezone: "UTC",
+            repo: "web-app",
+            reworkWindowDays: 21,
+        });
+
+        for (const rollup of rollups) {
+            expect(rollup.reworkLines).toBe(0);
+        }
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregatePerDev excludes victims dated after their killing commit", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const { db } = handle;
+        // A line cannot die before it was written; a victim dated after its
+        // killer must never count, however small the gap.
+        db.insert(lineDeaths)
+            .values({
+                repo: "web-app",
+                sha: "c2",
+                path: "src/a.ts",
+                victimSha: "v1",
+                victimAuthorId: 1,
+                victimAuthoredAt: Date.UTC(2025, 6, 6),
+                lines: 9,
+            })
+            .run();
+
+        const rollups = aggregatePerDev(handle.db, {
+            periods: [P2],
+            timezone: "UTC",
+            repo: "web-app",
+            reworkWindowDays: 21,
+        });
+
+        for (const rollup of rollups) {
+            expect(rollup.reworkLines).toBe(0);
+        }
     } finally {
         handle.sqlite.close();
         rmSync(dir, { recursive: true, force: true });

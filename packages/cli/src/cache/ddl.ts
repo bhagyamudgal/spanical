@@ -77,6 +77,11 @@ export const CREATE_TABLE_STATEMENTS = [
         lines INTEGER NOT NULL,
         PRIMARY KEY (repo, sha, path, victim_sha)
     );`,
+    `CREATE TABLE rework_captures (
+        repo TEXT PRIMARY KEY,
+        failed_candidates INTEGER NOT NULL,
+        captured_at INTEGER NOT NULL
+    );`,
     `CREATE TABLE author_github_logins (
         login TEXT COLLATE NOCASE PRIMARY KEY,
         author_id INTEGER NOT NULL REFERENCES authors(id)

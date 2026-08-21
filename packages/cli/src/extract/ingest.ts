@@ -8,6 +8,7 @@ import {
     fileChanges,
     fileOwnership,
     lineDeaths,
+    reworkCaptures,
 } from "../cache/schema";
 import { resolveConfig } from "../config/load";
 import type { SpanicalConfig } from "../config/schema";
@@ -86,6 +87,7 @@ function deleteRepoRows(db: CacheDatabase, repo: string): void {
     // re-attributes the repo; it is rebuilt lazily on the next ownership run.
     db.delete(fileOwnership).where(eq(fileOwnership.repo, repo)).run();
     db.delete(lineDeaths).where(eq(lineDeaths.repo, repo)).run();
+    db.delete(reworkCaptures).where(eq(reworkCaptures.repo, repo)).run();
 }
 
 export async function extractRepo(

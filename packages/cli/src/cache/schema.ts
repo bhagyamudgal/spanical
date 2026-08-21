@@ -129,6 +129,15 @@ export const lineDeaths = sqliteTable(
     ]
 );
 
+// Whether a repo's last line-death capture finished without failed candidates:
+// row counts in line_deaths cannot distinguish "complete" from "partial", and
+// only a complete capture may skip the blame pass on later runs.
+export const reworkCaptures = sqliteTable("rework_captures", {
+    repo: text("repo").primaryKey(),
+    failedCandidates: integer("failed_candidates").notNull(),
+    capturedAt: integer("captured_at").notNull(),
+});
+
 // login carries COLLATE NOCASE in ddl.ts, which Drizzle cannot express: GitHub
 // logins are case-insensitive, so the read-time join must be too.
 export const authorGithubLogins = sqliteTable("author_github_logins", {
@@ -198,6 +207,7 @@ export const cacheSchema = {
     extractions,
     fileOwnership,
     lineDeaths,
+    reworkCaptures,
     authorGithubLogins,
     githubSyncs,
     tickets,
@@ -214,6 +224,7 @@ export const cacheTables: SQLiteTable[] = [
     extractions,
     fileOwnership,
     lineDeaths,
+    reworkCaptures,
     authorGithubLogins,
     githubSyncs,
     tickets,

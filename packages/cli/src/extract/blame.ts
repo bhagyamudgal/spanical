@@ -16,7 +16,10 @@ export type BlamedLine = {
     authoredAt: number;
 };
 
-const SHA_LINE_PATTERN = /^[0-9a-f]{40} \d+ \d+/;
+// Object IDs are 40 hex (SHA-1) or 64 hex (SHA-256) repositories, optionally
+// caret-prefixed for grafted-boundary commits; the full id is captured, never
+// sliced, because victim_sha keys into the deaths table.
+const SHA_LINE_PATTERN = /^\^?([0-9a-f]{40}|[0-9a-f]{64}) \d+ \d+/;
 const AUTHOR_TIME_PREFIX = "author-time ";
 
 // parseBlamePorcelain tallies; this one keeps per-line identity so deleted
@@ -37,8 +40,9 @@ export function parseBlameLines(output: string): BlamedLine[] {
             sha = null;
             continue;
         }
-        if (SHA_LINE_PATTERN.test(line)) {
-            sha = line.slice(0, 40);
+        const shaMatch = SHA_LINE_PATTERN.exec(line);
+        if (shaMatch?.[1] !== undefined) {
+            sha = shaMatch[1];
             continue;
         }
         if (line.startsWith(AUTHOR_MAIL_PREFIX)) {
