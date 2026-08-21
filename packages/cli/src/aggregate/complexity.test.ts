@@ -402,6 +402,7 @@ test("renderContributorsReport json carries both arrays and the unattributed tot
         complexity: SAMPLE_COMPLEXITY,
         unattributedComplexity: 10,
         reworkWindowDays: 21,
+        incompleteReworkRepos: [],
     });
     const parsed: unknown = JSON.parse(json);
     if (typeof parsed !== "object" || parsed === null) {
@@ -440,6 +441,7 @@ test("renderContributorsReport carries the caveat and notes non-zero unattribute
             complexity: SAMPLE_COMPLEXITY,
             unattributedComplexity: 10,
             reworkWindowDays: 21,
+            incompleteReworkRepos: [],
         });
         expect(withUnattributed).toContain("Complexity removed");
         expect(withUnattributed).toContain("approximate");
@@ -450,6 +452,7 @@ test("renderContributorsReport carries the caveat and notes non-zero unattribute
             complexity: SAMPLE_COMPLEXITY,
             unattributedComplexity: 0,
             reworkWindowDays: 21,
+            incompleteReworkRepos: [],
         });
         expect(withoutUnattributed).not.toContain("could not be attributed");
     }

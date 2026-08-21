@@ -517,6 +517,7 @@ function buildArtifact(
         minFileLines: MIN_FILE_LINES,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
         windowEndShas: WINDOW_END_SHAS,
+        incompleteReworkRepos: [],
         tickets:
             refresh === null
                 ? null
@@ -891,6 +892,7 @@ async function buildMultiRepoArtifact(
         minFileLines: MIN_FILE_LINES,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
         windowEndShas,
+        incompleteReworkRepos: [],
         tickets:
             refresh === null
                 ? null

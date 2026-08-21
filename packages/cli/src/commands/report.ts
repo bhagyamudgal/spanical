@@ -142,7 +142,12 @@ export async function runReport(
             windowEndShas,
         } = await ensureMonthlySnapshots(db, run);
         await ensureOwnership(db, run, config);
-        await ensureRework(db, run, config);
+        const rework = await ensureRework(db, run, config);
+        if (rework.unknownEmails.length > 0) {
+            process.stderr.write(
+                `warning: ${rework.unknownEmails.length} author email(s) not in config: ${rework.unknownEmails.join(", ")}\n`
+            );
+        }
         const baselineShas = await ensureBaselineSnapshots(db, run);
 
         const repoNames = run.repos.map((repo) => repo.name);
@@ -241,6 +246,7 @@ export async function runReport(
             busFactorThreshold,
             windowEndShas,
             tickets: buildReportTickets(db, run, ticketRefresh, repoNames),
+            incompleteReworkRepos: rework.incompleteRepos,
             run,
         });
         const artifactPath = run.out ?? defaultReportPath(run.window, run.tz);

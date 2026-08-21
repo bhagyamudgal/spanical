@@ -66,6 +66,7 @@ export type ReportArtifactInput = {
     busFactorThreshold: number;
     windowEndShas: Map<string, string>;
     tickets: ReportTickets | null;
+    incompleteReworkRepos: string[];
     run: ResolvedRun;
 };
 
@@ -78,6 +79,7 @@ type AppendixContext = {
     windowEndShas: Map<string, string>;
     tickets: ReportTickets | null;
     reworkWindowDays: number;
+    incompleteReworkRepos: string[];
 };
 
 function fencedBlock(content: string): string {
@@ -91,13 +93,15 @@ function migrationsLine(migrations: MigrationChurn): string {
 function contributorsBlock(
     contributors: DevPeriodRollup[],
     complexity: ComplexityAttribution,
-    reworkWindowDays: number
+    reworkWindowDays: number,
+    incompleteReworkRepos: string[]
 ): string {
     return renderContributorsReport("md", {
         contributors,
         complexity: complexity.devs,
         unattributedComplexity: complexity.unattributed,
         reworkWindowDays,
+        incompleteReworkRepos,
     });
 }
 
@@ -154,7 +158,14 @@ function repoAppendixSection(
             }
         )}`,
         `#### Timeline${SECTION_GAP}${renderTimelineReport("md", insight.timeline, context)}`,
-        `#### Contributors${SECTION_GAP}${contributorsBlock(insight.contributors, insight.complexity, context.reworkWindowDays)}`,
+        `#### Contributors${SECTION_GAP}${contributorsBlock(
+            insight.contributors,
+            insight.complexity,
+            context.reworkWindowDays,
+            context.incompleteReworkRepos.filter(
+                (repo) => repo === insight.repo
+            )
+        )}`,
         ...appendixTicketBlocks(insight.repo, context),
     ].join(SECTION_GAP);
 }
@@ -180,6 +191,7 @@ export function buildReportArtifact(input: ReportArtifactInput): string {
                 windowEndShas: input.windowEndShas,
                 tickets: input.tickets,
                 reworkWindowDays: run.config.reworkWindowDays,
+                incompleteReworkRepos: input.incompleteReworkRepos,
             })
         )
         .join(SECTION_GAP);
@@ -210,7 +222,7 @@ export function buildReportArtifact(input: ReportArtifactInput): string {
         `# Engineering report — ${run.window.label}${SECTION_GAP}${fencedBlock(headline)}`,
         `## Activity by period${SECTION_GAP}${renderMarkdown(churnPeriodTable(combined.perPeriod))}`,
         `## Timeline${SECTION_GAP}${renderTimelineReport("md", input.timeline, { windowStart: run.window.start })}`,
-        `## Contributors${SECTION_GAP}${contributorsBlock(contributors, input.complexity, run.config.reworkWindowDays)}`,
+        `## Contributors${SECTION_GAP}${contributorsBlock(contributors, input.complexity, run.config.reworkWindowDays, input.incompleteReworkRepos)}`,
         ...ticketBlocks,
         `## Hotspots${SECTION_GAP}${renderHotspotsReport("md", input.hotspots, {
             minFileLines: input.minFileLines,

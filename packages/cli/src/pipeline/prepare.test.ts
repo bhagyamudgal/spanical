@@ -82,11 +82,15 @@ test("ensureRework retries a partial capture and skips a complete one", async ()
         const calls: number[] = [];
         const capture = async (opts: {
             candidates: unknown[];
+            resolveAuthorId: (email: string, name: string) => number;
         }): Promise<{
             records: (LineDeathRecord & { repo: string })[];
             failedCandidates: number;
         }> => {
             calls.push(opts.candidates.length);
+            // Mint a provisional author the way the real capture would, so
+            // the outcome's unknownEmails has something to carry.
+            opts.resolveAuthorId("stranger@example.com", "Stranger");
             if (calls.length === 1) {
                 return {
                     records: [deathRecord("c1")],
@@ -96,8 +100,12 @@ test("ensureRework retries a partial capture and skips a complete one", async ()
             return { records: [deathRecord("c1")], failedCandidates: 0 };
         };
 
-        await ensureRework(db, RUN, CONFIG, { captureLineDeaths: capture });
+        const partial = await ensureRework(db, RUN, CONFIG, {
+            captureLineDeaths: capture,
+        });
         expect(calls).toEqual([1]);
+        expect(partial.incompleteRepos).toEqual(["web-app"]);
+        expect(partial.unknownEmails).toContain("stranger@example.com");
         const partialMarker = db
             .select()
             .from(reworkCaptures)
@@ -106,8 +114,11 @@ test("ensureRework retries a partial capture and skips a complete one", async ()
         expect(partialMarker?.failedCandidates).toBe(1);
         expect(countDeaths(db)).toBe(1);
 
-        await ensureRework(db, RUN, CONFIG, { captureLineDeaths: capture });
+        const complete = await ensureRework(db, RUN, CONFIG, {
+            captureLineDeaths: capture,
+        });
         expect(calls).toEqual([1, 1]);
+        expect(complete.incompleteRepos).toEqual([]);
         const completeMarker = db
             .select()
             .from(reworkCaptures)

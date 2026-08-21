@@ -1,6 +1,6 @@
 import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
-import { and, count, eq, gt, gte, inArray, min } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, min, or } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import {
     commits,
@@ -17,7 +17,11 @@ import { extractWithConfig } from "../extract";
 import { seedAndResolveAuthors, type AuthorResolver } from "../extract/authors";
 import { blameFile, type BlameTally } from "../extract/blame";
 import { resolveDefaultBranch, runGit } from "../extract/git";
-import { captureLineDeaths, type LineDeathCandidate } from "../extract/rework";
+import {
+    captureLineDeaths,
+    type LineDeathCandidate,
+    type LineDeathRecord,
+} from "../extract/rework";
 import {
     resolveSccBinary,
     snapshotRepo,
@@ -28,6 +32,7 @@ import {
 import { generatePeriods } from "../window";
 
 const INSERT_BATCH_SIZE = 1000;
+const CAPTURE_PAGE_SIZE = 500;
 const BLAME_CONCURRENCY = 16;
 const SNAPSHOT_MONTH_FORMAT = "yyyy-MM";
 
@@ -355,9 +360,13 @@ export async function ensureOwnership(
 
 // Deletion candidates mirror file_changes scope: excludes and migrations were
 // already applied at ingest, so rework never counts lines those filters drop.
+// Keyset paging on the (sha, path) primary key keeps memory flat on repos
+// whose whole lifetime history has deletions.
 function reworkCandidates(
     db: CacheDatabase,
-    repoName: string
+    repoName: string,
+    after: LineDeathCandidate | null,
+    limit: number
 ): LineDeathCandidate[] {
     return db
         .select({ sha: fileChanges.sha, path: fileChanges.path })
@@ -367,20 +376,39 @@ function reworkCandidates(
                 eq(fileChanges.repo, repoName),
                 eq(fileChanges.isBinary, false),
                 eq(fileChanges.isMigration, false),
-                gt(fileChanges.deleted, 0)
+                gt(fileChanges.deleted, 0),
+                after === null
+                    ? undefined
+                    : or(
+                          gt(fileChanges.sha, after.sha),
+                          and(
+                              eq(fileChanges.sha, after.sha),
+                              gt(fileChanges.path, after.path)
+                          )
+                      )
             )
         )
+        .orderBy(fileChanges.sha, fileChanges.path)
+        .limit(limit)
         .all();
 }
+
+export type ReworkCaptureOutcome = {
+    // Repos whose capture finished with failed candidates: their reworkLines
+    // are undercounts and every rendered surface must say so.
+    incompleteRepos: string[];
+    unknownEmails: string[];
+};
 
 export async function ensureRework(
     db: CacheDatabase,
     run: Pick<ResolvedRun, "repos">,
     config: SpanicalConfig,
     deps: { captureLineDeaths?: typeof captureLineDeaths } = {}
-): Promise<void> {
+): Promise<ReworkCaptureOutcome> {
     const captureLineDeathsFn = deps.captureLineDeaths ?? captureLineDeaths;
     const resolver = seedAndResolveAuthors(db, config);
+    const incompleteRepos: string[] = [];
     for (const repo of run.repos) {
         const extraction = db
             .select({ tipSha: extractions.tipSha })
@@ -401,52 +429,72 @@ export async function ensureRework(
         if (marker && marker.failedCandidates === 0) {
             continue;
         }
-        const candidates = reworkCandidates(db, repo.name);
-        if (candidates.length === 0) {
-            recordCaptureMarker(db, repo.name, 0);
-            continue;
+        let lastKey: LineDeathCandidate | null = null;
+        let candidateCount = 0;
+        let totalFailed = 0;
+        let capturedAny = false;
+        for (;;) {
+            const candidates = reworkCandidates(
+                db,
+                repo.name,
+                lastKey,
+                CAPTURE_PAGE_SIZE
+            );
+            if (candidates.length === 0) {
+                break;
+            }
+            const capture = await captureLineDeathsFn({
+                repoName: repo.name,
+                repoPath: repo.path,
+                candidates,
+                resolveAuthorId: resolver.resolve,
+            });
+            persistLineDeaths(db, capture.records);
+            lastKey = candidates[candidates.length - 1] ?? null;
+            candidateCount += candidates.length;
+            totalFailed += capture.failedCandidates;
+            capturedAny ||= capture.records.length > 0;
         }
-        const capture = await captureLineDeathsFn({
-            repoName: repo.name,
-            repoPath: repo.path,
-            candidates,
-            resolveAuthorId: resolver.resolve,
-        });
         // Parity with ownership: candidates exist but nothing survived, so
         // either git failed under them or every deletion was a rename-edit;
         // reporting plain zeros would read as "no thrash" either way.
-        if (capture.failedCandidates > 0 || capture.records.length === 0) {
+        if (totalFailed > 0 || (candidateCount > 0 && !capturedAny)) {
             process.stderr.write(
-                `warning: rework attribution produced no line deaths for ${repo.name} across ${candidates.length} candidate commit(s) (${capture.failedCandidates} failed); rework lines may be undercounted.\n`
+                `warning: rework attribution produced no line deaths for ${repo.name} across ${candidateCount} candidate commit(s) (${totalFailed} failed); rework lines may be undercounted.\n`
             );
         }
-        if (capture.records.length > 0) {
-            const rows: LineDeathInsertRow[] = capture.records.map(
-                (record) => ({
-                    repo: record.repo,
-                    sha: record.sha,
-                    path: record.path,
-                    victimSha: record.victimSha,
-                    victimAuthorId: record.victimAuthorId,
-                    victimAuthoredAt: record.victimAuthoredAt,
-                    lines: record.lines,
-                })
-            );
-            db.transaction((tx) => {
-                for (
-                    let start = 0;
-                    start < rows.length;
-                    start += INSERT_BATCH_SIZE
-                ) {
-                    tx.insert(lineDeaths)
-                        .values(rows.slice(start, start + INSERT_BATCH_SIZE))
-                        .onConflictDoNothing()
-                        .run();
-                }
-            });
+        recordCaptureMarker(db, repo.name, totalFailed);
+        if (totalFailed > 0) {
+            incompleteRepos.push(repo.name);
         }
-        recordCaptureMarker(db, repo.name, capture.failedCandidates);
     }
+    return { incompleteRepos, unknownEmails: resolver.unknownEmails() };
+}
+
+function persistLineDeaths(
+    db: CacheDatabase,
+    records: (LineDeathRecord & { repo: string })[]
+): void {
+    if (records.length === 0) {
+        return;
+    }
+    const rows: LineDeathInsertRow[] = records.map((record) => ({
+        repo: record.repo,
+        sha: record.sha,
+        path: record.path,
+        victimSha: record.victimSha,
+        victimAuthorId: record.victimAuthorId,
+        victimAuthoredAt: record.victimAuthoredAt,
+        lines: record.lines,
+    }));
+    db.transaction((tx) => {
+        for (let start = 0; start < rows.length; start += INSERT_BATCH_SIZE) {
+            tx.insert(lineDeaths)
+                .values(rows.slice(start, start + INSERT_BATCH_SIZE))
+                .onConflictDoNothing()
+                .run();
+        }
+    });
 }
 
 function recordCaptureMarker(

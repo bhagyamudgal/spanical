@@ -110,7 +110,12 @@ export async function runContributors(
     try {
         await ensureMonthlySnapshots(handle.db, run);
         await ensureOwnership(handle.db, run, config);
-        await ensureRework(handle.db, run, config);
+        const rework = await ensureRework(handle.db, run, config);
+        if (rework.unknownEmails.length > 0) {
+            process.stderr.write(
+                `warning: ${rework.unknownEmails.length} author email(s) not in config: ${rework.unknownEmails.join(", ")}\n`
+            );
+        }
         const windowEndShas = await ensureWindowEndSnapshot(handle.db, run);
         const baselineShas = await ensureBaselineSnapshots(handle.db, run);
         const start = resolveWindowStart(handle.db, run);
@@ -120,6 +125,7 @@ export async function runContributors(
                 complexity: [],
                 unattributedComplexity: 0,
                 reworkWindowDays: config.reworkWindowDays,
+                incompleteReworkRepos: rework.incompleteRepos,
             });
         }
         const contributors = aggregatePerDev(handle.db, {
@@ -144,6 +150,7 @@ export async function runContributors(
             complexity: attribution.devs,
             unattributedComplexity: attribution.unattributed,
             reworkWindowDays: config.reworkWindowDays,
+            incompleteReworkRepos: rework.incompleteRepos,
         });
     } finally {
         handle.sqlite.close();

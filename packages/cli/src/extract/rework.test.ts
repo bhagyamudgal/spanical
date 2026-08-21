@@ -263,3 +263,144 @@ test("captureLineDeaths attributes deletions against a real fixture repo", async
         rmSync(repo, { recursive: true, force: true });
     }
 });
+
+test("captureLineDeaths still parses hunks when color.ui forces ANSI output", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "spanical-rework-color-"));
+    function git(args: string[]): void {
+        const result = Bun.spawnSync(["git", ...args], { cwd: repo });
+        if (result.exitCode !== 0) {
+            throw new Error(
+                `git ${args.join(" ")} failed: ${result.stderr.toString()}`
+            );
+        }
+    }
+    try {
+        git(["init", "-q", "-b", "main"]);
+        git(["config", "user.name", "ci"]);
+        git(["config", "user.email", "ci@example.com"]);
+        // color.ui=always emits ANSI bytes even into pipes; a machine parser
+        // that inherits it sees hunk headers it can never match.
+        git(["config", "color.ui", "always"]);
+        mkdirSync(join(repo, "src"), { recursive: true });
+        writeFileSync(join(repo, "src/a.ts"), "one\ntwo\nthree\nfour\nfive\n");
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "feat: five lines",
+            "--author=dev-one <dev-one@example.com>",
+        ]);
+        writeFileSync(join(repo, "src/a.ts"), "one\ntwo\nsix\n");
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "refactor: trim",
+            "--author=dev-two <dev-two@example.com>",
+        ]);
+        const shas = Bun.spawnSync(["git", "log", "--format=%H", "--reverse"], {
+            cwd: repo,
+        })
+            .stdout.toString()
+            .trim()
+            .split("\n");
+        const victimSha = shas[0];
+        const killerSha = shas[1];
+        if (!victimSha || !killerSha) {
+            throw new Error("Expected two commits in the fixture repo");
+        }
+
+        const capture = await captureLineDeaths({
+            repoName: "web-app",
+            repoPath: repo,
+            candidates: [{ sha: killerSha, path: "src/a.ts" }],
+            resolveAuthorId: () => 1,
+        });
+
+        expect(capture.failedCandidates).toBe(0);
+        expect(capture.records).toHaveLength(1);
+        expect(capture.records[0]?.lines).toBe(3);
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+    }
+});
+
+test("captureLineDeaths keeps the original author across a move", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "spanical-rework-move-"));
+    function git(args: string[]): void {
+        const result = Bun.spawnSync(["git", ...args], { cwd: repo });
+        if (result.exitCode !== 0) {
+            throw new Error(
+                `git ${args.join(" ")} failed: ${result.stderr.toString()}`
+            );
+        }
+    }
+    try {
+        git(["init", "-q", "-b", "main"]);
+        git(["config", "user.name", "ci"]);
+        git(["config", "user.email", "ci@example.com"]);
+        mkdirSync(join(repo, "notes"), { recursive: true });
+        writeFileSync(join(repo, "notes/old.txt"), "keep-a\nkill-b\nkill-c\n");
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "feat: notes",
+            "--author=dev-one <dev-one@example.com>",
+        ]);
+        git(["mv", "notes/old.txt", "notes/new.txt"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "chore: move notes",
+            "--author=dev-two <dev-two@example.com>",
+        ]);
+        writeFileSync(join(repo, "notes/new.txt"), "keep-a\nnew-line\n");
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "refactor: trim moved notes",
+            "--author=dev-two <dev-two@example.com>",
+        ]);
+        const shas = Bun.spawnSync(
+            ["git", "log", "--format=%H %ae", "--reverse"],
+            {
+                cwd: repo,
+            }
+        )
+            .stdout.toString()
+            .trim()
+            .split("\n")
+            .map((line) => line.split(" "));
+        const original = { sha: shas[0]?.[0], email: shas[0]?.[1] };
+        const moverSha = shas[1]?.[0];
+        const killerSha = shas[2]?.[0];
+        if (!original?.sha || !original.email || !moverSha || !killerSha) {
+            throw new Error("Expected three commits in the fixture repo");
+        }
+
+        const capture = await captureLineDeaths({
+            repoName: "web-app",
+            repoPath: repo,
+            candidates: [{ sha: killerSha, path: "notes/new.txt" }],
+            resolveAuthorId: (email) => (email === original.email ? 7 : 9),
+        });
+
+        // Without -M -C the mover would be charged for lines they never wrote.
+        expect(capture.failedCandidates).toBe(0);
+        expect(capture.records).toHaveLength(1);
+        expect(capture.records[0]).toMatchObject({
+            victimSha: original.sha,
+            victimAuthorId: 7,
+            lines: 2,
+        });
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+    }
+});

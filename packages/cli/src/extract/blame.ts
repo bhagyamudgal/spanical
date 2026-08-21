@@ -71,8 +71,15 @@ export async function blameFileLines(
     ref: string,
     path: string
 ): Promise<BlamedLine[] | null> {
+    // Line lifetimes must survive moves and copies: without -M -C, blame
+    // resets moved lines to the moving commit and later deletions charge the
+    // mover instead of the original author. Ownership's tally blame stays
+    // default on purpose; only this parser follows origin.
     const { data, error } = await tryCatch(
-        runGit(["blame", "--line-porcelain", ref, "--", path], repoPath)
+        runGit(
+            ["blame", "--line-porcelain", "-M", "-C", ref, "--", path],
+            repoPath
+        )
     );
     if (error) {
         return null;

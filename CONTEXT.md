@@ -19,7 +19,7 @@ Added + deleted lines over a span (`added + deleted`). The volume-of-edits measu
 _Avoid_: churn (unqualified), LOC touched
 
 **Rework churn**:
-Lines of a developer's own authorship deleted within `reworkWindowDays` (default 21) of the commit that wrote them, charged to the original author whether the deleter was that same dev or someone else. Attributed via blame-at-parent, so it reads line lifetimes, not file-level heuristics. Some iteration is healthy; sustained rework is the thrash signal — read as context, never in isolation. Known gap: deletions inside a rename-with-edit commit are not attributed (the diff reads as new-file additions at the destination path).
+Lines of a developer's own authorship deleted within `reworkWindowDays` (default 21) of the commit that wrote them, charged to the original author whether the deleter was that same dev or someone else. Attributed via blame-at-parent with move/copy tracking, so it reads line lifetimes across renames, not file-level heuristics. Like Ownership, each line credits its single git blame author — `Co-authored-by` trailers are not split. Some iteration is healthy; sustained rework is the thrash signal — read as context, never in isolation. Known gap: deletions inside a rename-with-edit commit are not attributed (the diff reads as new-file additions at the destination path).
 _Avoid_: churn (unqualified), self-rework (the deleter is not filtered)
 
 **Complexity**:

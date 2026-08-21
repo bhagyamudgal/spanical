@@ -85,7 +85,15 @@ async function captureCandidate(
     const parentRef = `${candidate.sha}^`;
     const { data: diff, error: diffError } = await tryCatch(
         runGit(
-            ["diff", "-U0", parentRef, candidate.sha, "--", candidate.path],
+            [
+                "diff",
+                "--no-color",
+                "-U0",
+                parentRef,
+                candidate.sha,
+                "--",
+                candidate.path,
+            ],
             repoPath
         )
     );
