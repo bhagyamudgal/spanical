@@ -75,6 +75,11 @@ const OWNERSHIP_CAVEAT =
     "Note: ownership credits every surviving line to its single git blame author; Co-authored-by trailers are not split, unlike churn attribution.";
 const COMPLEXITY_CAVEAT =
     "Note: complexity attribution is approximate — scc measures per-file snapshots, not diffs, so only a file's net monthly complexity change is known; one dev's additions and another's removals inside the same file-month cannot be separated.";
+
+function reworkCaveat(reworkWindowDays: number): string {
+    return `Note: rework counts lines deleted within ${reworkWindowDays} days of the commit that wrote them, charged to the original author whether the deleter was that same dev or someone else. Some iteration is healthy; sustained rework is the thrash signal, read as context, never in isolation. Lines deleted by a commit that also renamed their file are not attributed — the diff then reads as new-file additions.`;
+}
+
 const TICKET_REVERT_CAVEAT =
     'Note: revert matching is approximate — GitHub exposes no revert relationship, so a pull request titled Revert "X" is paired by title with the most recently merged cached pull request titled X in the same repo that had already merged when the revert was opened, and the thrash counts against that pull request rather than whoever reverted it.';
 const REVIEW_COUNT_CAVEAT =
@@ -91,6 +96,7 @@ export type ContributorsReport = {
     contributors: DevPeriodRollup[];
     complexity: DevComplexityRollup[];
     unattributedComplexity: number;
+    reworkWindowDays: number;
 };
 
 function unattributedComplexityNote(value: number): string {
@@ -475,6 +481,7 @@ export function renderContributorsReport(
         renderModel(devTable(result.contributors, { includePeriod: false })),
         renderModel(complexityTable(result.complexity)),
         COMPLEXITY_CAVEAT,
+        reworkCaveat(result.reworkWindowDays),
     ];
     if (result.unattributedComplexity !== 0) {
         sections.push(

@@ -9,6 +9,73 @@ const CLOSE_BRACKET = ">";
 
 export type BlameTally = Map<string, { name: string; lines: number }>;
 
+export type BlamedLine = {
+    sha: string;
+    email: string;
+    name: string;
+    authoredAt: number;
+};
+
+const SHA_LINE_PATTERN = /^[0-9a-f]{40} \d+ \d+/;
+const AUTHOR_TIME_PREFIX = "author-time ";
+
+// parseBlamePorcelain tallies; this one keeps per-line identity so deleted
+// ranges can be attributed to the commit that introduced them.
+export function parseBlameLines(output: string): BlamedLine[] {
+    const lines: BlamedLine[] = [];
+    let sha: string | null = null;
+    let email = "";
+    let name = "";
+    let authoredAt = 0;
+
+    for (const line of output.split("\n")) {
+        if (line.startsWith(CONTENT_LINE_PREFIX)) {
+            if (sha === null) {
+                continue;
+            }
+            lines.push({ sha, email, name, authoredAt });
+            sha = null;
+            continue;
+        }
+        if (SHA_LINE_PATTERN.test(line)) {
+            sha = line.slice(0, 40);
+            continue;
+        }
+        if (line.startsWith(AUTHOR_MAIL_PREFIX)) {
+            email = stripAngleBrackets(
+                line.slice(AUTHOR_MAIL_PREFIX.length).trim()
+            );
+            continue;
+        }
+        if (line.startsWith(AUTHOR_NAME_PREFIX)) {
+            name = line.slice(AUTHOR_NAME_PREFIX.length).trim();
+            continue;
+        }
+        if (line.startsWith(AUTHOR_TIME_PREFIX)) {
+            authoredAt = Number.parseInt(
+                line.slice(AUTHOR_TIME_PREFIX.length).trim(),
+                10
+            );
+        }
+    }
+
+    return lines;
+}
+
+export async function blameFileLines(
+    repoPath: string,
+    ref: string,
+    path: string
+): Promise<BlamedLine[] | null> {
+    const { data, error } = await tryCatch(
+        runGit(["blame", "--line-porcelain", ref, "--", path], repoPath)
+    );
+    if (error) {
+        return null;
+    }
+    return parseBlameLines(data);
+}
+
 function stripAngleBrackets(value: string): string {
     const withoutOpen = value.startsWith(OPEN_BRACKET) ? value.slice(1) : value;
     return withoutOpen.endsWith(CLOSE_BRACKET)

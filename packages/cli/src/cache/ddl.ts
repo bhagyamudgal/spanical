@@ -67,6 +67,16 @@ export const CREATE_TABLE_STATEMENTS = [
         surviving_lines INTEGER NOT NULL,
         PRIMARY KEY (repo, head_sha, path, author_id)
     );`,
+    `CREATE TABLE line_deaths (
+        repo TEXT NOT NULL,
+        sha TEXT NOT NULL REFERENCES commits(sha),
+        path TEXT NOT NULL,
+        victim_sha TEXT NOT NULL,
+        victim_author_id INTEGER NOT NULL REFERENCES authors(id),
+        victim_authored_at INTEGER NOT NULL,
+        lines INTEGER NOT NULL,
+        PRIMARY KEY (repo, sha, path, victim_sha)
+    );`,
     `CREATE TABLE author_github_logins (
         login TEXT COLLATE NOCASE PRIMARY KEY,
         author_id INTEGER NOT NULL REFERENCES authors(id)
@@ -135,6 +145,16 @@ const INDEX_DEFINITIONS = [
         name: "idx_file_ownership_head",
         table: "file_ownership",
         columns: ["repo", "head_sha"],
+    },
+    {
+        name: "idx_line_deaths_repo",
+        table: "line_deaths",
+        columns: ["repo"],
+    },
+    {
+        name: "idx_line_deaths_victim_author",
+        table: "line_deaths",
+        columns: ["victim_author_id"],
     },
     {
         name: "idx_author_github_logins_author_id",

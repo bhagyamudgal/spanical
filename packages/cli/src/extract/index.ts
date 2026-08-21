@@ -17,3 +17,12 @@ export {
     type ExtractionResult,
     type RepoExtraction,
 } from "./ingest";
+export {
+    bucketDeletionsByVictim,
+    captureLineDeaths,
+    parseDeletedRanges,
+    type DeletedRange,
+    type LineDeathCandidate,
+    type LineDeathRecord,
+    type VictimBucket,
+} from "./rework";

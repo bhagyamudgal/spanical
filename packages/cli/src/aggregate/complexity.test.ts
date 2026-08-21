@@ -380,6 +380,7 @@ const SAMPLE_CONTRIBUTORS: DevPeriodRollup[] = [
         filesTouched: 3,
         avgCommitSize: 28.33,
         activeDays: 2,
+        reworkLines: 5,
     },
 ];
 
@@ -400,6 +401,7 @@ test("renderContributorsReport json carries both arrays and the unattributed tot
         contributors: SAMPLE_CONTRIBUTORS,
         complexity: SAMPLE_COMPLEXITY,
         unattributedComplexity: 10,
+        reworkWindowDays: 21,
     });
     const parsed: unknown = JSON.parse(json);
     if (typeof parsed !== "object" || parsed === null) {
@@ -437,6 +439,7 @@ test("renderContributorsReport carries the caveat and notes non-zero unattribute
             contributors: SAMPLE_CONTRIBUTORS,
             complexity: SAMPLE_COMPLEXITY,
             unattributedComplexity: 10,
+            reworkWindowDays: 21,
         });
         expect(withUnattributed).toContain("Complexity removed");
         expect(withUnattributed).toContain("approximate");
@@ -446,6 +449,7 @@ test("renderContributorsReport carries the caveat and notes non-zero unattribute
             contributors: SAMPLE_CONTRIBUTORS,
             complexity: SAMPLE_COMPLEXITY,
             unattributedComplexity: 0,
+            reworkWindowDays: 21,
         });
         expect(withoutUnattributed).not.toContain("could not be attributed");
     }

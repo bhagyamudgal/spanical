@@ -2,12 +2,19 @@ import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
 import { and, countDistinct, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
-import { authors, commitAuthors, commits, fileChanges } from "../cache/schema";
+import {
+    authors,
+    commitAuthors,
+    commits,
+    fileChanges,
+    lineDeaths,
+} from "../cache/schema";
 import type { Period } from "../window/types";
 import type { DevPeriodRollup } from "./types";
 
 const DAY_FORMAT = "yyyy-MM-dd";
 const FILE_KEY_SEPARATOR = sql`char(10)`;
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
 type PeriodBounds = {
     start: number;
@@ -66,6 +73,40 @@ function queryChurnAndFiles(
             },
         ])
     );
+}
+
+// Rework is charged to the victim author in the period the death happened,
+// which is why the period bounds bind the killing commit and the window binds
+// the gap between the victim's birth and its death.
+function queryRework(
+    db: CacheDatabase,
+    bounds: PeriodBounds,
+    reworkWindowMs: number
+): Map<number, number> {
+    const rows = db
+        .select({
+            victimAuthorId: lineDeaths.victimAuthorId,
+            rework: sql<number>`coalesce(sum(${lineDeaths.lines}), 0)`,
+        })
+        .from(lineDeaths)
+        .innerJoin(commits, eq(commits.sha, lineDeaths.sha))
+        .where(
+            and(
+                gte(commits.authoredAt, bounds.start),
+                lt(commits.authoredAt, bounds.end),
+                gte(
+                    lineDeaths.victimAuthoredAt,
+                    sql`${commits.authoredAt} - ${reworkWindowMs}`
+                ),
+                bounds.repo ? eq(lineDeaths.repo, bounds.repo) : undefined,
+                bounds.repos && bounds.repos.length > 0
+                    ? inArray(lineDeaths.repo, bounds.repos)
+                    : undefined
+            )
+        )
+        .groupBy(lineDeaths.victimAuthorId)
+        .all();
+    return new Map(rows.map((row) => [row.victimAuthorId, row.rework]));
 }
 
 function queryCommitCounts(
@@ -140,6 +181,7 @@ export function aggregatePerDev(
         timezone: string;
         repo?: string;
         repos?: string[];
+        reworkWindowDays?: number;
     }
 ): DevPeriodRollup[] {
     const nameById = loadAuthorNames(db);
@@ -155,12 +197,21 @@ export function aggregatePerDev(
         const churn = queryChurnAndFiles(db, bounds);
         const commitCounts = queryCommitCounts(db, bounds);
         const activeDays = queryActiveDays(db, bounds, opts.timezone);
+        const rework =
+            opts.reworkWindowDays === undefined
+                ? new Map<number, number>()
+                : queryRework(
+                      db,
+                      bounds,
+                      opts.reworkWindowDays * MILLISECONDS_PER_DAY
+                  );
 
         const authorIds = [
             ...new Set([
                 ...churn.keys(),
                 ...commitCounts.keys(),
                 ...activeDays.keys(),
+                ...rework.keys(),
             ]),
         ].sort((left, right) => left - right);
 
@@ -191,6 +242,10 @@ export function aggregatePerDev(
                 avgCommitSize:
                     commitCount === 0 ? null : throughput / commitCount,
                 activeDays: activeDays.get(authorId) ?? 0,
+                reworkLines:
+                    opts.reworkWindowDays === undefined
+                        ? null
+                        : (rework.get(authorId) ?? 0),
             });
         }
     }

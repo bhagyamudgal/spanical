@@ -22,6 +22,7 @@ import {
     ensureExtracted,
     ensureMonthlySnapshots,
     ensureOwnership,
+    ensureRework,
     resolveWindowStart,
 } from "../pipeline/prepare";
 import { writeRendered } from "../render";
@@ -76,6 +77,7 @@ function computeContributors(
         periods: [{ label: run.window.label, start, end: run.window.end }],
         timezone: run.tz,
         repos,
+        reworkWindowDays: run.config.reworkWindowDays,
     });
 }
 
@@ -140,6 +142,7 @@ export async function runReport(
             windowEndShas,
         } = await ensureMonthlySnapshots(db, run);
         await ensureOwnership(db, run, config);
+        await ensureRework(db, run, config);
         const baselineShas = await ensureBaselineSnapshots(db, run);
 
         const repoNames = run.repos.map((repo) => repo.name);

@@ -1,11 +1,13 @@
 import { TZDate } from "@date-fns/tz";
 import { format } from "date-fns";
-import { and, count, eq, gte, inArray, min } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, min } from "drizzle-orm";
 import type { CacheDatabase } from "../cache/open";
 import {
     commits,
     extractions,
+    fileChanges,
     fileOwnership,
+    lineDeaths,
     sccSnapshots,
 } from "../cache/schema";
 import type { ResolvedRun } from "../cli/resolve-run";
@@ -14,6 +16,7 @@ import { extractWithConfig } from "../extract";
 import { seedAndResolveAuthors, type AuthorResolver } from "../extract/authors";
 import { blameFile, type BlameTally } from "../extract/blame";
 import { resolveDefaultBranch, runGit } from "../extract/git";
+import { captureLineDeaths, type LineDeathCandidate } from "../extract/rework";
 import {
     resolveSccBinary,
     snapshotRepo,
@@ -23,11 +26,12 @@ import {
 } from "../scc";
 import { generatePeriods } from "../window";
 
-const OWNERSHIP_INSERT_BATCH_SIZE = 1000;
+const INSERT_BATCH_SIZE = 1000;
 const BLAME_CONCURRENCY = 16;
 const SNAPSHOT_MONTH_FORMAT = "yyyy-MM";
 
 type OwnershipInsertRow = typeof fileOwnership.$inferInsert;
+type LineDeathInsertRow = typeof lineDeaths.$inferInsert;
 type RepoRef = { name: string; path: string; branch?: string };
 
 export async function ensureExtracted(
@@ -299,13 +303,9 @@ async function blameRepoOwnership(
         return;
     }
     db.transaction((tx) => {
-        for (
-            let start = 0;
-            start < rows.length;
-            start += OWNERSHIP_INSERT_BATCH_SIZE
-        ) {
+        for (let start = 0; start < rows.length; start += INSERT_BATCH_SIZE) {
             tx.insert(fileOwnership)
-                .values(rows.slice(start, start + OWNERSHIP_INSERT_BATCH_SIZE))
+                .values(rows.slice(start, start + INSERT_BATCH_SIZE))
                 .onConflictDoNothing()
                 .run();
         }
@@ -349,5 +349,93 @@ export async function ensureOwnership(
             tipSha,
             config.hotspot.minFileLines
         );
+    }
+}
+
+// Deletion candidates mirror file_changes scope: excludes and migrations were
+// already applied at ingest, so rework never counts lines those filters drop.
+function reworkCandidates(
+    db: CacheDatabase,
+    repoName: string
+): LineDeathCandidate[] {
+    return db
+        .select({ sha: fileChanges.sha, path: fileChanges.path })
+        .from(fileChanges)
+        .where(
+            and(
+                eq(fileChanges.repo, repoName),
+                eq(fileChanges.isBinary, false),
+                eq(fileChanges.isMigration, false),
+                gt(fileChanges.deleted, 0)
+            )
+        )
+        .all();
+}
+
+export async function ensureRework(
+    db: CacheDatabase,
+    run: ResolvedRun,
+    config: SpanicalConfig
+): Promise<void> {
+    const resolver = seedAndResolveAuthors(db, config);
+    for (const repo of run.repos) {
+        const extraction = db
+            .select({ tipSha: extractions.tipSha })
+            .from(extractions)
+            .where(eq(extractions.repo, repo.name))
+            .get();
+        if (!extraction) {
+            continue;
+        }
+        const cached = db
+            .select({ value: count() })
+            .from(lineDeaths)
+            .where(eq(lineDeaths.repo, repo.name))
+            .get();
+        if ((cached?.value ?? 0) > 0) {
+            continue;
+        }
+        const candidates = reworkCandidates(db, repo.name);
+        if (candidates.length === 0) {
+            continue;
+        }
+        const capture = await captureLineDeaths({
+            repoName: repo.name,
+            repoPath: repo.path,
+            candidates,
+            resolveAuthorId: resolver.resolve,
+        });
+        // Parity with ownership: candidates exist but nothing survived, so
+        // either git failed under them or every deletion was a rename-edit;
+        // reporting plain zeros would read as "no thrash" either way.
+        if (capture.failedCandidates > 0 || capture.records.length === 0) {
+            process.stderr.write(
+                `warning: rework attribution produced no line deaths for ${repo.name} across ${candidates.length} candidate commit(s) (${capture.failedCandidates} failed); rework lines may be undercounted.\n`
+            );
+        }
+        if (capture.records.length === 0) {
+            continue;
+        }
+        const rows: LineDeathInsertRow[] = capture.records.map((record) => ({
+            repo: record.repo,
+            sha: record.sha,
+            path: record.path,
+            victimSha: record.victimSha,
+            victimAuthorId: record.victimAuthorId,
+            victimAuthoredAt: record.victimAuthoredAt,
+            lines: record.lines,
+        }));
+        db.transaction((tx) => {
+            for (
+                let start = 0;
+                start < rows.length;
+                start += INSERT_BATCH_SIZE
+            ) {
+                tx.insert(lineDeaths)
+                    .values(rows.slice(start, start + INSERT_BATCH_SIZE))
+                    .onConflictDoNothing()
+                    .run();
+            }
+        });
     }
 }

@@ -35,6 +35,7 @@ import {
     ensureExtracted,
     ensureMonthlySnapshots,
     ensureOwnership,
+    ensureRework,
     ensureWindowEndSnapshot,
     resolveWindowStart,
 } from "./prepare";
@@ -109,6 +110,7 @@ export async function runContributors(
     try {
         await ensureMonthlySnapshots(handle.db, run);
         await ensureOwnership(handle.db, run, config);
+        await ensureRework(handle.db, run, config);
         const windowEndShas = await ensureWindowEndSnapshot(handle.db, run);
         const baselineShas = await ensureBaselineSnapshots(handle.db, run);
         const start = resolveWindowStart(handle.db, run);
@@ -117,12 +119,14 @@ export async function runContributors(
                 contributors: [],
                 complexity: [],
                 unattributedComplexity: 0,
+                reworkWindowDays: config.reworkWindowDays,
             });
         }
         const contributors = aggregatePerDev(handle.db, {
             periods: [{ label: run.window.label, start, end: run.window.end }],
             timezone: run.tz,
             repos,
+            reworkWindowDays: config.reworkWindowDays,
         });
         const attribution = aggregateComplexityAttribution(handle.db, {
             window: run.window,
@@ -139,6 +143,7 @@ export async function runContributors(
             contributors,
             complexity: attribution.devs,
             unattributedComplexity: attribution.unattributed,
+            reworkWindowDays: config.reworkWindowDays,
         });
     } finally {
         handle.sqlite.close();

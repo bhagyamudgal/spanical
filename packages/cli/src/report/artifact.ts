@@ -77,6 +77,7 @@ type AppendixContext = {
     busFactorThreshold: number;
     windowEndShas: Map<string, string>;
     tickets: ReportTickets | null;
+    reworkWindowDays: number;
 };
 
 function fencedBlock(content: string): string {
@@ -89,12 +90,14 @@ function migrationsLine(migrations: MigrationChurn): string {
 
 function contributorsBlock(
     contributors: DevPeriodRollup[],
-    complexity: ComplexityAttribution
+    complexity: ComplexityAttribution,
+    reworkWindowDays: number
 ): string {
     return renderContributorsReport("md", {
         contributors,
         complexity: complexity.devs,
         unattributedComplexity: complexity.unattributed,
+        reworkWindowDays,
     });
 }
 
@@ -151,7 +154,7 @@ function repoAppendixSection(
             }
         )}`,
         `#### Timeline${SECTION_GAP}${renderTimelineReport("md", insight.timeline, context)}`,
-        `#### Contributors${SECTION_GAP}${contributorsBlock(insight.contributors, insight.complexity)}`,
+        `#### Contributors${SECTION_GAP}${contributorsBlock(insight.contributors, insight.complexity, context.reworkWindowDays)}`,
         ...appendixTicketBlocks(insight.repo, context),
     ].join(SECTION_GAP);
 }
@@ -176,6 +179,7 @@ export function buildReportArtifact(input: ReportArtifactInput): string {
                 busFactorThreshold: input.busFactorThreshold,
                 windowEndShas: input.windowEndShas,
                 tickets: input.tickets,
+                reworkWindowDays: run.config.reworkWindowDays,
             })
         )
         .join(SECTION_GAP);
@@ -206,7 +210,7 @@ export function buildReportArtifact(input: ReportArtifactInput): string {
         `# Engineering report — ${run.window.label}${SECTION_GAP}${fencedBlock(headline)}`,
         `## Activity by period${SECTION_GAP}${renderMarkdown(churnPeriodTable(combined.perPeriod))}`,
         `## Timeline${SECTION_GAP}${renderTimelineReport("md", input.timeline, { windowStart: run.window.start })}`,
-        `## Contributors${SECTION_GAP}${contributorsBlock(contributors, input.complexity)}`,
+        `## Contributors${SECTION_GAP}${contributorsBlock(contributors, input.complexity, run.config.reworkWindowDays)}`,
         ...ticketBlocks,
         `## Hotspots${SECTION_GAP}${renderHotspotsReport("md", input.hotspots, {
             minFileLines: input.minFileLines,

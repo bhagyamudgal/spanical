@@ -61,6 +61,7 @@ const devRows: DevPeriodRollup[] = [
         filesTouched: 85,
         avgCommitSize: 7.5,
         activeDays: 15,
+        reworkLines: 42,
     },
     {
         period: "2025-07",
@@ -74,6 +75,7 @@ const devRows: DevPeriodRollup[] = [
         filesTouched: 8,
         avgCommitSize: null,
         activeDays: 2,
+        reworkLines: null,
     },
 ];
 
@@ -152,10 +154,10 @@ test("churnPeriodTable markdown right-aligns numerics and formats thousands", ()
 
 test("devTable markdown carries flag markers and the legend", () => {
     const expected = [
-        "| Author | Commits (volume) | Lines added (volume) | Lines deleted (volume) | Net lines (volume) | Throughput churn (context) | Files touched (context) | Avg commit size (signal) | Active days (signal) |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
-        "| dev-one | 40 | 5,000 | 1,200 | 3,800 | 6,200 | 85 | 7.5 | 15 |",
-        "| dev-two | 3 | 90 | 12 | 78 | 102 | 8 | - | 2 |",
+        "| Author | Commits (volume) | Lines added (volume) | Lines deleted (volume) | Net lines (volume) | Throughput churn (context) | Rework lines (context) | Files touched (context) | Avg commit size (signal) | Active days (signal) |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| dev-one | 40 | 5,000 | 1,200 | 3,800 | 6,200 | 42 | 85 | 7.5 | 15 |",
+        "| dev-two | 3 | 90 | 12 | 78 | 102 | - | 8 | - | 2 |",
         "",
         "_flags: (signal) safe to read per-dev · (context) needs interpretation · (volume) narrative only, not a ranking_",
     ].join("\n");
@@ -176,7 +178,8 @@ test("devTable json preserves null and non-integer avg commit size", () => {
         '        "throughput": 6200,',
         '        "filesTouched": 85,',
         '        "avgCommitSize": 7.5,',
-        '        "activeDays": 15',
+        '        "activeDays": 15,',
+        '        "reworkLines": 42',
         "    },",
         "    {",
         '        "period": "2025-07",',
@@ -189,7 +192,8 @@ test("devTable json preserves null and non-integer avg commit size", () => {
         '        "throughput": 102,',
         '        "filesTouched": 8,',
         '        "avgCommitSize": null,',
-        '        "activeDays": 2',
+        '        "activeDays": 2,',
+        '        "reworkLines": null',
         "    }",
         "]",
     ].join("\n");
