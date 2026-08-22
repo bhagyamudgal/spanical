@@ -1,16 +1,88 @@
 name: Release
 
+# dbmux-style changesets flow: pull requests carry .changeset entries; the
+# bot accumulates them into a "chore: version packages" pull request, and
+# merging that one builds and publishes the release.
 on:
     push:
-        tags: ["v*"]
+        branches:
+            - main
 
-permissions:
-    contents: write
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
 
 jobs:
-    build:
-        name: Build ${{ matrix.target }}
-        runs-on: ${{ matrix.os }}
+    version:
+        name: Open Version Pull Request
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: write
+            pull-requests: write
+
+        outputs:
+            has-changesets: ${{ steps.changesets.outputs.has-changesets }}
+            version: ${{ steps.package.outputs.version }}
+            is-released: ${{ steps.released.outputs.is-released }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version-file: package.json
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Collect changesets into a version pull request
+              id: changesets
+              uses: changesets/action@v2
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  commit-message: "chore: version packages"
+                  pr-title: "chore: version packages"
+
+            - name: Read the CLI version on main
+              id: package
+              run: |
+                  echo "version=$(node -p "require('./packages/cli/package.json').version")" >> "$GITHUB_OUTPUT"
+
+            # Every push to main without pending changesets reaches the publish
+            # job, so this is what distinguishes "the version pull request just
+            # merged" from "an unrelated commit landed". The GitHub release is
+            # the source of truth rather than a git tag, because a failed build
+            # must be retryable by re-running the job instead of forcing a new
+            # version.
+            - name: Check whether that version is already released
+              id: released
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  VERSION: ${{ steps.package.outputs.version }}
+              run: |
+                  if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                      echo "is-released=true" >> "$GITHUB_OUTPUT"
+                  elif gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" >/dev/null 2>&1; then
+                      echo "is-released=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "is-released=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+    release:
+        name: Build and Release
+        needs: version
+        if: needs.version.outputs.has-changesets == 'false' && needs.version.outputs.is-released == 'false'
+
+        permissions:
+            contents: write
+
         strategy:
             matrix:
                 include:
@@ -26,6 +98,8 @@ jobs:
                     - target: linux-arm64
                       os: ubuntu-24.04-arm
                       bun_target: bun-linux-arm64
+
+        runs-on: ${{ matrix.os }}
 
         steps:
             - uses: actions/checkout@v6
@@ -86,10 +160,17 @@ jobs:
                       dist/spanical-${{ matrix.target }}
                       dist/spanical-${{ matrix.target }}.sha256
 
-    release:
-        name: Create Release
-        needs: build
+    publish:
+        name: Aggregate and Publish Release
+        needs: [version, release]
         runs-on: ubuntu-latest
+
+        permissions:
+            contents: write
+
+        env:
+            VERSION: ${{ needs.version.outputs.version }}
+
         steps:
             - uses: actions/download-artifact@v8
               with:
@@ -125,8 +206,23 @@ jobs:
             # unverified.
             - uses: softprops/action-gh-release@v2
               with:
+                  tag_name: v${{ env.VERSION }}
                   draft: true
                   generate_release_notes: true
+                  body: |
+                      ## spanical v${{ env.VERSION }}
+
+                      See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/packages/cli/CHANGELOG.md) for what changed.
+
+                      ### Installation
+
+                      ```bash
+                      curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
+                      ```
+
+                      ### Verification
+
+                      Downloads are verified against `SHA256SUMS` (SHA256).
                   files: |
                       artifacts/spanical-*
                       artifacts/SHA256SUMS
@@ -134,7 +230,4 @@ jobs:
             - name: Publish release (flip draft to public)
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  REF_NAME: ${{ github.ref_name }}
-                  REPO: ${{ github.repository }}
-              run: |
-                  gh release edit "$REF_NAME" --repo "$REPO" --draft=false
+              run: gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false
