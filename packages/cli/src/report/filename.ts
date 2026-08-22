@@ -12,12 +12,13 @@ function monthSlug(date: Date, timezone: string): string {
 export function defaultReportPath(
     window: ResolvedWindow,
     timezone: string,
-    cwd?: string
+    cwd?: string,
+    extension: "md" | "html" = "md"
 ): string {
     const endMonth = monthSlug(window.end, timezone);
     const slug =
         window.start === null
             ? `history_${endMonth}`
             : `${monthSlug(window.start, timezone)}_${endMonth}`;
-    return join(cwd ?? process.cwd(), `spanical-report-${slug}.md`);
+    return join(cwd ?? process.cwd(), `spanical-report-${slug}.${extension}`);
 }

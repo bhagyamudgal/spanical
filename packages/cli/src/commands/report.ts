@@ -1,4 +1,4 @@
-import { command } from "@drizzle-team/brocli";
+import { command, string } from "@drizzle-team/brocli";
 import { tryCatch } from "@spanical/utils";
 import {
     aggregateAll,
@@ -31,6 +31,7 @@ import {
     type PerRepoInsight,
     type ReportTickets,
 } from "../report/artifact";
+import { buildDashboardHtml } from "../report/dashboard";
 import { defaultReportPath } from "../report/filename";
 import { formatHeadline } from "../report/headline";
 import {
@@ -249,8 +250,28 @@ export async function runReport(
             incompleteReworkRepos: rework.incompleteRepos,
             run,
         });
-        const artifactPath = run.out ?? defaultReportPath(run.window, run.tz);
-        writeRendered(artifact, artifactPath);
+        const isHtml = run.format === "html";
+        const artifactPath =
+            run.out ??
+            defaultReportPath(
+                run.window,
+                run.tz,
+                undefined,
+                isHtml ? "html" : "md"
+            );
+        writeRendered(
+            isHtml
+                ? buildDashboardHtml({
+                      windowLabel: run.window.label,
+                      summary: full.combined.summary,
+                      perPeriod: full.combined.perPeriod,
+                      perDev: full.combined.perDev,
+                      sizeTrend: full.combined.sizeTrend,
+                      hotspots,
+                  })
+                : artifact,
+            artifactPath
+        );
         const headline = formatHeadline({
             summary: full.combined.summary,
             granularity: run.window.granularity,
@@ -274,7 +295,12 @@ export async function runReport(
 export const reportCommand = command({
     name: "report",
     desc: "Generate an engineering insights report",
-    options: { ...globalFlags },
+    options: {
+        ...globalFlags,
+        format: string()
+            .enum("table", "json", "md", "html")
+            .desc("Output format"),
+    },
     handler: async (flags) => {
         const now = new Date();
         const { data: run, error: resolveError } = await tryCatch(

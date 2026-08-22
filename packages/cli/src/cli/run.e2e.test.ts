@@ -3,6 +3,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readFileSync,
     readdirSync,
     rmSync,
     writeFileSync,
@@ -216,6 +217,49 @@ test.skipIf(SCC_ON_PATH === null)(
         }
     }
 );
+
+const HTML_REPORT_PATTERN = /^spanical-report-.*\.html$/;
+
+test.skipIf(SCC_ON_PATH === null)(
+    "report --format html writes a self-contained dashboard artifact",
+    () => {
+        const repo = initRepo();
+        try {
+            commit(
+                repo,
+                DEV_ONE,
+                { "src/a.ts": "export const a = 1;\n" },
+                "feat: a"
+            );
+
+            const result = runCli(repo, ["report", "--format", "html"]);
+
+            expect(result.exitCode).toBe(0);
+            const files = readdirSync(repo).filter((name) =>
+                HTML_REPORT_PATTERN.test(name)
+            );
+            expect(files.length).toBeGreaterThan(0);
+            const html = readFileSync(join(repo, files[0]!), "utf8");
+            expect(html).toContain("<canvas");
+            expect(html).not.toMatch(/(src|href)="https?:\/\//);
+        } finally {
+            cleanup([repo]);
+        }
+    }
+);
+
+test("churn rejects --format html instead of rendering it as markdown", () => {
+    const repo = initRepo();
+    try {
+        commit(repo, DEV_ONE, { "a.ts": "1\n" }, "feat: a");
+
+        const result = runCli(repo, ["churn", "--format", "html"]);
+
+        expect(result.exitCode).toBe(1);
+    } finally {
+        cleanup([repo]);
+    }
+});
 
 test.skipIf(SCC_ON_PATH === null)(
     "report runs in a git repository that has no config file",
