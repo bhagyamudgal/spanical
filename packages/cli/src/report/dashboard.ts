@@ -24,6 +24,14 @@ function safeJson(value: unknown): string {
     return JSON.stringify(value).replaceAll("<", "\\u003c");
 }
 
+function esc(text: string): string {
+    return text
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+}
+
 type ChartSpec = {
     id: string;
     title: string;
@@ -73,6 +81,22 @@ export function buildDashboardHtml(input: DashboardInput): string {
     const { summary } = input;
     const hotspotRows = input.hotspots.slice(0, HOTSPOT_LIMIT);
 
+    // First-seen order would let an early small language keep a palette slot
+    // while a later dominant one drops off the chart entirely.
+    const languageTotals = new Map<string, number>();
+    for (const point of input.sizeTrend) {
+        for (const language of point.languages) {
+            languageTotals.set(
+                language.language,
+                (languageTotals.get(language.language) ?? 0) + language.code
+            );
+        }
+    }
+    const topLanguages = [...languageTotals.entries()]
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 5)
+        .map(([name]) => name);
+
     // per-dev rollups arrive per period; the share chart needs one slice per
     // human across the whole window.
     const throughputByAuthor = new Map<string, number>();
@@ -95,6 +119,7 @@ export function buildDashboardHtml(input: DashboardInput): string {
         months: input.sizeTrend.map((point) => point.month),
         totalCode: input.sizeTrend.map((point) => point.totalCode),
         totalComplexity: input.sizeTrend.map((point) => point.totalComplexity),
+        languageNames: topLanguages,
         languageMonths: input.sizeTrend.map((point) => ({
             month: point.month,
             languages: point.languages
@@ -108,10 +133,86 @@ export function buildDashboardHtml(input: DashboardInput): string {
         })),
     };
 
+    const tables: Record<string, { headers: string[]; rows: string[][] }> = {
+        netGrowth: {
+            headers: ["Period", "Net lines"],
+            rows: input.perPeriod.map((period) => [
+                period.period,
+                String(period.net),
+            ]),
+        },
+        churn: {
+            headers: ["Period", "Added", "Deleted"],
+            rows: input.perPeriod.map((period) => [
+                period.period,
+                String(period.added),
+                String(period.deleted),
+            ]),
+        },
+        contributors: {
+            headers: ["Author", "Throughput lines"],
+            rows: data.authors.map((author) => [
+                author.author,
+                String(author.throughput),
+            ]),
+        },
+        size: {
+            headers: ["Month", "Code lines", "Complexity"],
+            rows: input.sizeTrend.map((point) => [
+                point.month,
+                String(point.totalCode),
+                String(point.totalComplexity),
+            ]),
+        },
+        languages: {
+            headers: ["Month", "Language", "Code lines"],
+            rows: input.sizeTrend.flatMap((point) =>
+                point.languages
+                    .filter((language) =>
+                        topLanguages.includes(language.language)
+                    )
+                    .map((language) => [
+                        point.month,
+                        language.language,
+                        String(language.code),
+                    ])
+            ),
+        },
+        hotspots: {
+            headers: ["Path", "Score", "Owners"],
+            rows: data.hotspots.map((row) => [
+                row.path,
+                String(row.score),
+                String(row.owners),
+            ]),
+        },
+    };
+
+    function dataTableHtml(id: string): string {
+        const table = tables[id];
+        if (!table || table.rows.length === 0) {
+            return "";
+        }
+        const head = table.headers
+            .map((header) => `<th>${esc(header)}</th>`)
+            .join("");
+        const body = table.rows
+            .map(
+                (row) =>
+                    `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>`
+            )
+            .join("");
+        return `<details class="data-table">
+  <summary>View as table</summary>
+  <table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
+</details>`;
+    }
+
     const chartsHtml = CHARTS.map(
         (chart) => `<section class="card">
-  <h2>${chart.title}${chart.note ? ` <small>${chart.note}</small>` : ""}</h2>
-  <div class="chart-holder"><canvas id="${chart.id}"></canvas></div>
+  <h2>${esc(chart.title)}${chart.note ? ` <small>${esc(chart.note)}</small>` : ""}</h2>
+  <div class="chart-holder"><canvas id="${chart.id}" role="img" aria-label="${esc(chart.title)}"></canvas></div>
+  ${dataTableHtml(chart.id)}
 </section>`
     ).join("\n");
 
@@ -120,7 +221,7 @@ export function buildDashboardHtml(input: DashboardInput): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>spanical — ${input.windowLabel}</title>
+<title>spanical — ${esc(input.windowLabel)}</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -147,13 +248,21 @@ export function buildDashboardHtml(input: DashboardInput): string {
   .card h2 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
   .card h2 small { color: #8b949e; font-weight: 400; }
   .chart-holder { position: relative; height: 300px; }
+  .data-table { margin-top: 10px; font-size: 12px; }
+  .data-table summary { cursor: pointer; color: #58a6ff; }
+  .data-table table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .data-table th, .data-table td {
+    text-align: right; padding: 4px 8px;
+    border-bottom: 1px solid #21262d;
+  }
+  .data-table th:first-child, .data-table td:first-child { text-align: left; }
   footer { margin-top: 20px; color: #8b949e; font-size: 12px; }
 </style>
 </head>
 <body>
 <header>
   <h1>spanical dashboard</h1>
-  <div class="window">${input.windowLabel}</div>
+  <div class="window">${esc(input.windowLabel)}</div>
   <div class="chips">
     ${summaryChip("Commits", String(summary.commits))}
     ${summaryChip("Active devs", String(summary.activeDevs))}
@@ -249,13 +358,12 @@ function holder(id) {
 })();
 
 (function languages() {
-  const names = [...new Set(DATA.languageMonths.flatMap((m) => m.languages.map((l) => l.language)))];
   const palette = ["#58a6ff", "#bc8cff", "#2ea043", "#f0883e", "#f85149"];
   new Chart(holder("languages"), {
     type: "bar",
     data: {
       labels: DATA.months,
-      datasets: names.slice(0, palette.length).map((name, index) => ({
+      datasets: DATA.languageNames.map((name, index) => ({
         label: name,
         data: DATA.languageMonths.map((month) => {
           const hit = month.languages.find((l) => l.language === name);

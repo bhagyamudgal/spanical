@@ -88,6 +88,70 @@ test("dashboard embeds every chart, the vendored bundle, and the data object", (
     expect(html).toContain("Net growth per period");
 });
 
+test("dashboard ranks languages by window total, not first appearance", () => {
+    const html = buildDashboardHtml({
+        windowLabel: "last 2m",
+        summary: SUMMARY,
+        perPeriod: PER_PERIOD,
+        perDev: PER_DEV,
+        sizeTrend: [
+            {
+                month: "2026-07",
+                totalCode: 2000,
+                totalComplexity: 90,
+                languages: [
+                    { language: "Shell", code: 1900 },
+                    { language: "SQL", code: 100 },
+                ],
+            },
+            {
+                month: "2026-08",
+                totalCode: 9000,
+                totalComplexity: 400,
+                languages: [
+                    { language: "SQL", code: 8500 },
+                    { language: "Shell", code: 500 },
+                ],
+            },
+        ],
+        hotspots: [],
+    });
+
+    // SQL dominates across the window even though Shell appears first.
+    expect(html.indexOf('"SQL"')).toBeLessThan(html.indexOf('"Shell"'));
+});
+
+test("dashboard escapes the window label in parsed HTML positions", () => {
+    const hostile = "</title><script>alert(1)</script>";
+    const html = buildDashboardHtml({
+        windowLabel: hostile,
+        summary: SUMMARY,
+        perPeriod: PER_PERIOD,
+        perDev: PER_DEV,
+        sizeTrend: SIZE_TREND,
+        hotspots: [],
+    });
+
+    expect(html).not.toContain("</title><script>");
+    expect(html).toContain("&lt;/title&gt;");
+});
+
+test("dashboard exposes every chart as an accessible table", () => {
+    const html = buildDashboardHtml({
+        windowLabel: "last 12m",
+        summary: SUMMARY,
+        perPeriod: PER_PERIOD,
+        perDev: PER_DEV,
+        sizeTrend: SIZE_TREND,
+        hotspots: HOTSPOTS,
+    });
+
+    expect(html.match(/<details class="data-table">/g)).toHaveLength(6);
+    expect(html).toContain("<th>Author</th>");
+    // Author names travel through esc() on their way into the table cells.
+    expect(html).toContain("<td>dev-one</td>");
+});
+
 test("dashboard makes no external requests and survives script-breaking input", () => {
     const hostileAuthor = "</script><script>alert(1)</script>";
     const html = buildDashboardHtml({
