@@ -1,0 +1,235 @@
+name: Release
+
+# dbmux-style changesets flow: pull requests carry .changeset entries; the
+# bot accumulates them into a "chore: version packages" pull request, and
+# merging that one builds and publishes the release.
+on:
+    push:
+        branches:
+            - main
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+# Read-only by default so the matrix builds never hold a write-capable
+# token; only the version and publish jobs grant contents:write explicitly.
+permissions:
+    contents: read
+
+jobs:
+    version:
+        name: Open Version Pull Request
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: write
+            pull-requests: write
+
+        outputs:
+            has-changesets: ${{ steps.changesets.outputs.has-changesets }}
+            version: ${{ steps.package.outputs.version }}
+            is-released: ${{ steps.released.outputs.is-released }}
+
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+              with:
+                  bun-version-file: package.json
+
+            - name: Install dependencies
+              run: bun install --frozen-lockfile
+
+            - name: Collect changesets into a version pull request
+              id: changesets
+              uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  commit-message: "chore: version packages"
+                  pr-title: "chore: version packages"
+
+            - name: Read the CLI version on main
+              id: package
+              run: |
+                  echo "version=$(node -p "require('./packages/cli/package.json').version")" >> "$GITHUB_OUTPUT"
+
+            # Every push to main without pending changesets reaches the publish
+            # job, so this is what distinguishes "the version pull request just
+            # merged" from "an unrelated commit landed". The GitHub release is
+            # the source of truth rather than a git tag, because a failed build
+            # must be retryable by re-running the job instead of forcing a new
+            # version.
+            - name: Check whether that version is already released
+              id: released
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  VERSION: ${{ steps.package.outputs.version }}
+              run: |
+                  if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                      echo "is-released=true" >> "$GITHUB_OUTPUT"
+                  elif gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$VERSION" >/dev/null 2>&1; then
+                      echo "is-released=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "is-released=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+    release:
+        name: Build and Release
+        needs: version
+        if: needs.version.outputs.has-changesets == 'false' && needs.version.outputs.is-released == 'false'
+
+        strategy:
+            matrix:
+                include:
+                    - target: darwin-arm64
+                      os: macos-latest
+                      bun_target: bun-darwin-arm64
+                    - target: darwin-x64
+                      os: macos-15-intel
+                      bun_target: bun-darwin-x64
+                    - target: linux-x64
+                      os: ubuntu-latest
+                      bun_target: bun-linux-x64
+                    - target: linux-arm64
+                      os: ubuntu-24.04-arm
+                      bun_target: bun-linux-arm64
+
+        runs-on: ${{ matrix.os }}
+
+        steps:
+            - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+              with:
+                  bun-version-file: package.json
+            - run: bun install --frozen-lockfile
+
+            - name: Compile binary
+              run: |
+                  bun build packages/cli/src/index.ts \
+                    --compile \
+                    --minify \
+                    --sourcemap=none \
+                    --target=${{ matrix.bun_target }} \
+                    --outfile dist/spanical-${{ matrix.target }}
+
+            - name: Install llvm-strip (Linux)
+              if: startsWith(matrix.target, 'linux-')
+              run: sudo apt-get update && sudo apt-get install -y llvm
+
+            - name: Strip symbols (Linux)
+              if: startsWith(matrix.target, 'linux-')
+              run: llvm-strip --strip-unneeded dist/spanical-${{ matrix.target }}
+
+            - name: Strip symbols (macOS)
+              if: startsWith(matrix.target, 'darwin-')
+              run: strip dist/spanical-${{ matrix.target }}
+
+            # Ad-hoc signature: without it, Gatekeeper kills the downloaded
+            # binary even after chmod +x; xattr clears the quarantine proof.
+            - name: Ad-hoc codesign (macOS)
+              if: startsWith(matrix.target, 'darwin-')
+              run: |
+                  xattr -cr dist/spanical-${{ matrix.target }}
+                  codesign --force --sign - dist/spanical-${{ matrix.target }}
+                  codesign -dv dist/spanical-${{ matrix.target }}
+
+            - name: Verify binary architecture and size
+              run: |
+                  file dist/spanical-${{ matrix.target }}
+                  ls -lh dist/spanical-${{ matrix.target }}
+
+            - name: Smoke-test --version
+              run: |
+                  chmod +x dist/spanical-${{ matrix.target }}
+                  ./dist/spanical-${{ matrix.target }} --version
+
+            - name: Compute SHA256
+              run: |
+                  cd dist
+                  shasum -a 256 spanical-${{ matrix.target }} > spanical-${{ matrix.target }}.sha256
+
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+              with:
+                  name: spanical-${{ matrix.target }}
+                  path: |
+                      dist/spanical-${{ matrix.target }}
+                      dist/spanical-${{ matrix.target }}.sha256
+
+    publish:
+        name: Aggregate and Publish Release
+        needs: [version, release]
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: write
+
+        env:
+            VERSION: ${{ needs.version.outputs.version }}
+
+        steps:
+            - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+              with:
+                  path: artifacts
+                  merge-multiple: true
+
+            - name: Aggregate SHA256SUMS
+              run: |
+                  cd artifacts
+                  # Fail-fast: if no .sha256 sidecars were downloaded (e.g.,
+                  # an upload-artifact rename regression), the cat below
+                  # would silently produce an empty SHA256SUMS that bricks
+                  # every client's checksum-verified install.
+                  count=$(ls -1 spanical-*.sha256 2>/dev/null | wc -l | tr -d ' ')
+                  binaries=$(ls -1 spanical-* 2>/dev/null | grep -v '\.sha256$' | wc -l | tr -d ' ')
+                  if [ "$count" -lt 1 ] || [ "$count" != "$binaries" ]; then
+                      echo "sha256 count ($count) does not match binary count ($binaries) — abort" >&2
+                      exit 1
+                  fi
+                  cat spanical-*.sha256 > SHA256SUMS
+                  rm spanical-*.sha256
+                  if [ ! -s SHA256SUMS ]; then
+                      echo "SHA256SUMS empty after aggregation — abort" >&2
+                      exit 1
+                  fi
+                  cat SHA256SUMS
+
+            - run: chmod +x artifacts/spanical-*
+
+            # Draft first, publish only once every asset is attached, so
+            # releases/latest never serves a window where binaries exist but
+            # SHA256SUMS is still uploading and installs fall through
+            # unverified.
+            - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+              with:
+                  tag_name: v${{ env.VERSION }}
+                  draft: true
+                  generate_release_notes: true
+                  body: |
+                      ## spanical v${{ env.VERSION }}
+
+                      See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/packages/cli/CHANGELOG.md) for what changed.
+
+                      ### Installation
+
+                      ```bash
+                      curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
+                      ```
+
+                      ### Verification
+
+                      Downloads are verified against `SHA256SUMS` (SHA256).
+                  files: |
+                      artifacts/spanical-*
+                      artifacts/SHA256SUMS
+
+            - name: Publish release (flip draft to public)
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false

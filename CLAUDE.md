@@ -20,7 +20,7 @@ spanical is a local-first code-insights CLI: it reads git history and tells the 
 - **Config:** `spanical.config.ts` with `defineConfig()` + zod validation at load.
 - **External binaries:** `git` required on PATH; `scc` auto-downloads on first run (PATH-installed scc takes precedence; pinned version, checksum-verified, into `~/.spanical/bin`).
 - **Testing:** `bun test` — unit tests for pure logic; integration tests build throwaway fixture git repos in temp dirs and run real extraction.
-- **Distribution:** `bun link` for dev; public rollout via tag-triggered GitHub Actions matrix (`bun build --compile` per platform) → GitHub Release + `install.sh`.
+- **Distribution:** `bun link` for dev; releases flow through changesets — every user-facing PR carries a `.changeset/*.md` entry (`bunx changeset`), the bot accumulates them into a "chore: version packages" PR, and merging that builds the per-platform matrix (`bun build --compile`) → GitHub Release + verified `install.sh`.
 - **Reference implementations:** [dbmux](https://github.com/bhagyamudgal/dbmux) for the monorepo shape and turbo.json; [worktree-cli](https://github.com/bhagyamudgal/worktree-cli) for the brocli CLI structure and release pipeline. Check them before inventing structure.
 
 ---
