@@ -18,9 +18,10 @@ const ALLOWED_RELEASE_HOSTS = new Set([
     "github-releases.githubusercontent.com",
 ]);
 
-function isAllowedReleaseHost(urlString: string): boolean {
+export function isAllowedReleaseHost(urlString: string): boolean {
     const { data: parsed } = tryCatchSync(() => new URL(urlString));
     if (!parsed) return false;
+    if (parsed.protocol !== "https:") return false;
     return ALLOWED_RELEASE_HOSTS.has(parsed.host);
 }
 
