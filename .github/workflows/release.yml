@@ -1,0 +1,140 @@
+name: Release
+
+on:
+    push:
+        tags: ["v*"]
+
+permissions:
+    contents: write
+
+jobs:
+    build:
+        name: Build ${{ matrix.target }}
+        runs-on: ${{ matrix.os }}
+        strategy:
+            matrix:
+                include:
+                    - target: darwin-arm64
+                      os: macos-latest
+                      bun_target: bun-darwin-arm64
+                    - target: darwin-x64
+                      os: macos-15-intel
+                      bun_target: bun-darwin-x64
+                    - target: linux-x64
+                      os: ubuntu-latest
+                      bun_target: bun-linux-x64
+                    - target: linux-arm64
+                      os: ubuntu-24.04-arm
+                      bun_target: bun-linux-arm64
+
+        steps:
+            - uses: actions/checkout@v6
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version-file: package.json
+            - run: bun install --frozen-lockfile
+
+            - name: Compile binary
+              run: |
+                  bun build packages/cli/src/index.ts \
+                    --compile \
+                    --minify \
+                    --sourcemap=none \
+                    --target=${{ matrix.bun_target }} \
+                    --outfile dist/spanical-${{ matrix.target }}
+
+            - name: Install llvm-strip (Linux)
+              if: startsWith(matrix.target, 'linux-')
+              run: sudo apt-get update && sudo apt-get install -y llvm
+
+            - name: Strip symbols (Linux)
+              if: startsWith(matrix.target, 'linux-')
+              run: llvm-strip --strip-unneeded dist/spanical-${{ matrix.target }}
+
+            - name: Strip symbols (macOS)
+              if: startsWith(matrix.target, 'darwin-')
+              run: strip dist/spanical-${{ matrix.target }}
+
+            # Ad-hoc signature: without it, Gatekeeper kills the downloaded
+            # binary even after chmod +x; xattr clears the quarantine proof.
+            - name: Ad-hoc codesign (macOS)
+              if: startsWith(matrix.target, 'darwin-')
+              run: |
+                  xattr -cr dist/spanical-${{ matrix.target }}
+                  codesign --force --sign - dist/spanical-${{ matrix.target }}
+                  codesign -dv dist/spanical-${{ matrix.target }}
+
+            - name: Verify binary architecture and size
+              run: |
+                  file dist/spanical-${{ matrix.target }}
+                  ls -lh dist/spanical-${{ matrix.target }}
+
+            - name: Smoke-test --version
+              run: |
+                  chmod +x dist/spanical-${{ matrix.target }}
+                  ./dist/spanical-${{ matrix.target }} --version
+
+            - name: Compute SHA256
+              run: |
+                  cd dist
+                  shasum -a 256 spanical-${{ matrix.target }} > spanical-${{ matrix.target }}.sha256
+
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: spanical-${{ matrix.target }}
+                  path: |
+                      dist/spanical-${{ matrix.target }}
+                      dist/spanical-${{ matrix.target }}.sha256
+
+    release:
+        name: Create Release
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/download-artifact@v8
+              with:
+                  path: artifacts
+                  merge-multiple: true
+
+            - name: Aggregate SHA256SUMS
+              run: |
+                  cd artifacts
+                  # Fail-fast: if no .sha256 sidecars were downloaded (e.g.,
+                  # an upload-artifact rename regression), the cat below
+                  # would silently produce an empty SHA256SUMS that bricks
+                  # every client's checksum-verified install.
+                  count=$(ls -1 spanical-*.sha256 2>/dev/null | wc -l | tr -d ' ')
+                  binaries=$(ls -1 spanical-* 2>/dev/null | grep -v '\.sha256$' | wc -l | tr -d ' ')
+                  if [ "$count" -lt 1 ] || [ "$count" != "$binaries" ]; then
+                      echo "sha256 count ($count) does not match binary count ($binaries) — abort" >&2
+                      exit 1
+                  fi
+                  cat spanical-*.sha256 > SHA256SUMS
+                  rm spanical-*.sha256
+                  if [ ! -s SHA256SUMS ]; then
+                      echo "SHA256SUMS empty after aggregation — abort" >&2
+                      exit 1
+                  fi
+                  cat SHA256SUMS
+
+            - run: chmod +x artifacts/spanical-*
+
+            # Draft first, publish only once every asset is attached, so
+            # releases/latest never serves a window where binaries exist but
+            # SHA256SUMS is still uploading and installs fall through
+            # unverified.
+            - uses: softprops/action-gh-release@v2
+              with:
+                  draft: true
+                  generate_release_notes: true
+                  files: |
+                      artifacts/spanical-*
+                      artifacts/SHA256SUMS
+
+            - name: Publish release (flip draft to public)
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REF_NAME: ${{ github.ref_name }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  gh release edit "$REF_NAME" --repo "$REPO" --draft=false
