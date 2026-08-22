@@ -404,3 +404,166 @@ test("captureLineDeaths keeps the original author across a move", async () => {
         rmSync(repo, { recursive: true, force: true });
     }
 });
+
+test("captureLineDeaths keeps the original author across an intra-file move", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "spanical-rework-intramove-"));
+    function git(args: string[]): void {
+        const result = Bun.spawnSync(["git", ...args], { cwd: repo });
+        if (result.exitCode !== 0) {
+            throw new Error(
+                `git ${args.join(" ")} failed: ${result.stderr.toString()}`
+            );
+        }
+    }
+    try {
+        git(["init", "-q", "-b", "main"]);
+        git(["config", "user.name", "ci"]);
+        git(["config", "user.email", "ci@example.com"]);
+        writeFileSync(
+            join(repo, "f.txt"),
+            "alpha\nbravo\ncharlie\ndelta\necho\nfoxtrot\n"
+        );
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "feat: six lines",
+            "--author=dev-one <dev-one@example.com>",
+        ]);
+        // dev-two moves the last three lines above the first three.
+        writeFileSync(
+            join(repo, "f.txt"),
+            "delta\necho\nfoxtrot\nalpha\nbravo\ncharlie\n"
+        );
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "refactor: reorder",
+            "--author=dev-two <dev-two@example.com>",
+        ]);
+        // Then deletes all three moved lines.
+        writeFileSync(join(repo, "f.txt"), "alpha\nbravo\ncharlie\n");
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "refactor: drop moved lines",
+            "--author=dev-two <dev-two@example.com>",
+        ]);
+        const shas = Bun.spawnSync(["git", "log", "--format=%H", "--reverse"], {
+            cwd: repo,
+        })
+            .stdout.toString()
+            .trim()
+            .split("\n");
+        const originalSha = shas[0];
+        const killerSha = shas[2];
+        if (!originalSha || !killerSha) {
+            throw new Error("Expected three commits in the fixture repo");
+        }
+
+        const capture = await captureLineDeaths({
+            repoName: "web-app",
+            repoPath: repo,
+            candidates: [{ sha: killerSha, path: "f.txt" }],
+            resolveAuthorId: (email) =>
+                email === "dev-one@example.com" ? 7 : 9,
+        });
+
+        expect(capture.failedCandidates).toBe(0);
+        expect(capture.records).toHaveLength(1);
+        expect(capture.records[0]).toMatchObject({
+            victimSha: originalSha,
+            victimAuthorId: 7,
+            lines: 3,
+        });
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+    }
+});
+
+test("captureLineDeaths keeps the original author across a cross-file copy", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "spanical-rework-copy-"));
+    function git(args: string[]): void {
+        const result = Bun.spawnSync(["git", ...args], { cwd: repo });
+        if (result.exitCode !== 0) {
+            throw new Error(
+                `git ${args.join(" ")} failed: ${result.stderr.toString()}`
+            );
+        }
+    }
+    try {
+        git(["init", "-q", "-b", "main"]);
+        git(["config", "user.name", "ci"]);
+        git(["config", "user.email", "ci@example.com"]);
+        const copied =
+            "unique-shared-line-one-with-enough-context-for-copy-detection\nunique-shared-line-two-with-enough-context-for-copy-detection\n";
+        mkdirSync(join(repo, "src"), { recursive: true });
+        writeFileSync(join(repo, "src/a.txt"), `${copied}a-only-line\n`);
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "feat: source lines",
+            "--author=dev-one <dev-one@example.com>",
+        ]);
+        // dev-two extracts the shared lines into b.txt while trimming them
+        // out of a.txt in the SAME commit: blame can only trace a copy whose
+        // commit also touched the source file.
+        writeFileSync(join(repo, "src/a.txt"), "a-only-line\n");
+        writeFileSync(join(repo, "src/b.txt"), `b-own-line\n${copied}`);
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "refactor: extract shared lines",
+            "--author=dev-two <dev-two@example.com>",
+        ]);
+        // Later dev-two deletes the extracted lines from b.txt again; the
+        // origin must stay dev-one's original commit.
+        writeFileSync(join(repo, "src/b.txt"), "b-own-line\n");
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "refactor: drop copied lines",
+            "--author=dev-two <dev-two@example.com>",
+        ]);
+        const shas = Bun.spawnSync(["git", "log", "--format=%H", "--reverse"], {
+            cwd: repo,
+        })
+            .stdout.toString()
+            .trim()
+            .split("\n");
+        const originalSha = shas[0];
+        const killerSha = shas[2];
+        if (!originalSha || !killerSha) {
+            throw new Error("Expected three commits in the fixture repo");
+        }
+
+        const capture = await captureLineDeaths({
+            repoName: "web-app",
+            repoPath: repo,
+            candidates: [{ sha: killerSha, path: "src/b.txt" }],
+            resolveAuthorId: (email) =>
+                email === "dev-one@example.com" ? 7 : 9,
+        });
+
+        expect(capture.failedCandidates).toBe(0);
+        expect(capture.records).toHaveLength(1);
+        expect(capture.records[0]).toMatchObject({
+            victimSha: originalSha,
+            victimAuthorId: 7,
+            lines: 2,
+        });
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+    }
+});

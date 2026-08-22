@@ -175,3 +175,64 @@ test("ensureRework records an empty capture for repos with no candidates", async
 function countDeaths(db: ReturnType<typeof openCache>["db"]): number {
     return db.select({ sha: lineDeaths.sha }).from(lineDeaths).all().length;
 }
+
+test("ensureRework pages candidates through the keyset and completes after the last page", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spanical-prepare-pages-"));
+    const handle = openCache({ cwd: dir });
+    try {
+        const { db } = handle;
+        db.insert(extractions)
+            .values({
+                repo: "web-app",
+                branch: "main",
+                tipSha: "tip",
+                since: null,
+                configKey: "k",
+                extractedAt: 0,
+            })
+            .run();
+        // One past the page size forces a second keyset page of one row.
+        db.insert(fileChanges)
+            .values(
+                Array.from({ length: 501 }, (_, index) => ({
+                    sha: `k${String(index).padStart(3, "0")}`,
+                    repo: "web-app",
+                    path: `/f${index}.ts`,
+                    added: 10,
+                    deleted: 5,
+                    isBinary: false,
+                    isMigration: false,
+                }))
+            )
+            .run();
+
+        const calls: number[] = [];
+        await ensureRework(db, RUN, CONFIG, {
+            captureLineDeaths: async (opts) => {
+                calls.push(opts.candidates.length);
+                return { records: [], failedCandidates: 0 };
+            },
+        });
+
+        expect(calls).toEqual([500, 1]);
+        const marker = db
+            .select()
+            .from(reworkCaptures)
+            .where(eq(reworkCaptures.repo, "web-app"))
+            .get();
+        expect(marker?.failedCandidates).toBe(0);
+
+        // A complete marker means the next run skips capture entirely.
+        let captureCallsAfterCompletion = 0;
+        await ensureRework(db, RUN, CONFIG, {
+            captureLineDeaths: async () => {
+                captureCallsAfterCompletion += 1;
+                return { records: [], failedCandidates: 0 };
+            },
+        });
+        expect(captureCallsAfterCompletion).toBe(0);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
