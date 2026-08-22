@@ -1,6 +1,6 @@
 {
     "name": "spanical",
-    "version": "0.0.0",
+    "version": "0.1.0",
     "description": "Local-first code-insights CLI that reads git history to tell the story of your engineering.",
     "type": "module",
     "bin": {
