@@ -12,6 +12,12 @@ import type { globalFlags } from "./global-flags";
 
 type RunFlags = TypeOf<typeof globalFlags>;
 
+// The report command widens the shared format flag with "html"; its flags
+// object still has to satisfy this resolver's input type.
+type ResolverFlags = Omit<RunFlags, "format"> & {
+    format?: "table" | "json" | "md" | "html";
+};
+
 const DEFAULT_FORMAT = "table";
 
 export type ResolvedRun = {
@@ -20,7 +26,9 @@ export type ResolvedRun = {
     tz: string;
     exclude: string[];
     by: "dev" | "file" | "dir" | "language" | null;
-    format: "table" | "json" | "md";
+    // Only the report command offers and consumes "html"; every other
+    // subcommand's option enum still rejects it at parse time.
+    format: "table" | "json" | "md" | "html";
     out: string | null;
     cache: boolean;
     window: ResolvedWindow;
@@ -69,7 +77,7 @@ function parseRepoFlag(value: string, cwd: string): ResolvedRun["repos"] {
 }
 
 export async function resolveRunConfig(input: {
-    flags: Partial<RunFlags>;
+    flags: Partial<ResolverFlags>;
     cwd?: string;
     now: Date;
 }): Promise<ResolvedRun> {

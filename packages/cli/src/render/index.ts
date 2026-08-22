@@ -69,7 +69,15 @@ export {
 } from "./tables";
 export { writeRendered } from "./output";
 
-export type RenderFormat = "table" | "md" | "json";
+export type RenderFormat = "table" | "json" | "md" | "html";
+
+// Only the report command produces html output; every other surface hits
+// this guard instead of silently rendering markdown.
+export function assertRenderableFormat(format: RenderFormat): void {
+    if (format === "html") {
+        throw new Error("html output is only supported by the report command");
+    }
+}
 
 const OWNERSHIP_CAVEAT =
     "Note: ownership credits every surviving line to its single git blame author; Co-authored-by trailers are not split, unlike churn attribution.";
@@ -128,6 +136,7 @@ export function renderData(
     data: unknown,
     emptyMessage?: string
 ): string {
+    assertRenderableFormat(format);
     if (format === "json") return renderJson(data);
     if (model.rows.length === 0 && emptyMessage !== undefined) {
         return emptyMessage;

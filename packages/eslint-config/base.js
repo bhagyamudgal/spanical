@@ -33,6 +33,8 @@ export default [
     },
     eslintConfigPrettier,
     {
-        ignores: ["dist/", "node_modules/"],
+        // Vendored minified bundles (e.g. Chart.js) are committed as-is and
+        // must never be linted or reformatted.
+        ignores: ["dist/", "node_modules/", "**/vendor/"],
     },
 ];

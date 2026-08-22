@@ -3,3 +3,4 @@ dist
 .turbo
 bun.lock
 docs/private
+packages/cli/src/report/vendor/
