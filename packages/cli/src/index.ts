@@ -9,6 +9,7 @@ import { reviewsCommand } from "./commands/reviews";
 import { sizeCommand } from "./commands/size";
 import { ticketsCommand } from "./commands/tickets";
 import { timelineCommand } from "./commands/timeline";
+import { updateCommand } from "./commands/update";
 import pkg from "../package.json";
 
 run(
@@ -23,6 +24,7 @@ run(
         reviewsCommand,
         timelineCommand,
         cacheCommand,
+        updateCommand,
     ],
     {
         name: "spanical",
