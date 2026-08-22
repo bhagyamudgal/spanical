@@ -94,6 +94,7 @@ export function devTable(
                 deleted: row.deleted,
                 net: row.net,
                 throughput: row.throughput,
+                reworkLines: row.reworkLines,
                 filesTouched: row.filesTouched,
                 avgCommitSize: row.avgCommitSize,
                 activeDays: row.activeDays,

@@ -22,6 +22,7 @@ import {
     ensureExtracted,
     ensureMonthlySnapshots,
     ensureOwnership,
+    ensureRework,
     resolveWindowStart,
 } from "../pipeline/prepare";
 import { writeRendered } from "../render";
@@ -76,6 +77,7 @@ function computeContributors(
         periods: [{ label: run.window.label, start, end: run.window.end }],
         timezone: run.tz,
         repos,
+        reworkWindowDays: run.config.reworkWindowDays,
     });
 }
 
@@ -140,6 +142,12 @@ export async function runReport(
             windowEndShas,
         } = await ensureMonthlySnapshots(db, run);
         await ensureOwnership(db, run, config);
+        const rework = await ensureRework(db, run, config);
+        if (rework.unknownEmails.length > 0) {
+            process.stderr.write(
+                `warning: ${rework.unknownEmails.length} author email(s) not in config: ${rework.unknownEmails.join(", ")}\n`
+            );
+        }
         const baselineShas = await ensureBaselineSnapshots(db, run);
 
         const repoNames = run.repos.map((repo) => repo.name);
@@ -238,6 +246,7 @@ export async function runReport(
             busFactorThreshold,
             windowEndShas,
             tickets: buildReportTickets(db, run, ticketRefresh, repoNames),
+            incompleteReworkRepos: rework.incompleteRepos,
             run,
         });
         const artifactPath = run.out ?? defaultReportPath(run.window, run.tz);

@@ -517,6 +517,7 @@ function buildArtifact(
         minFileLines: MIN_FILE_LINES,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
         windowEndShas: WINDOW_END_SHAS,
+        incompleteReworkRepos: [],
         tickets:
             refresh === null
                 ? null
@@ -792,7 +793,8 @@ async function buildMultiRepoArtifact(
     handle: ReturnType<typeof openCache>,
     dir: string,
     refresh: TicketRefresh | null = null,
-    windowEndShas: Map<string, string> = MULTI_WINDOW_END_SHAS
+    windowEndShas: Map<string, string> = MULTI_WINDOW_END_SHAS,
+    incompleteReworkRepos: string[] = []
 ): Promise<string> {
     const { db } = handle;
     const repos = ["web", "api"];
@@ -891,6 +893,7 @@ async function buildMultiRepoArtifact(
         minFileLines: MIN_FILE_LINES,
         busFactorThreshold: BUS_FACTOR_THRESHOLD,
         windowEndShas,
+        incompleteReworkRepos,
         tickets:
             refresh === null
                 ? null
@@ -1456,4 +1459,56 @@ test("defaultReportPath uses a history slug when the window has no start", () =>
     expect(defaultReportPath(window, "UTC", "/tmp/work")).toBe(
         join("/tmp/work", "spanical-report-history_2025-07.md")
     );
+});
+
+test("buildReportArtifact carries the incomplete-rework caveat into the combined contributors section", async () => {
+    const { handle, dir } = seedMultiRepoFixture();
+    try {
+        const artifact = await buildMultiRepoArtifact(
+            handle,
+            dir,
+            null,
+            MULTI_WINDOW_END_SHAS,
+            ["api"]
+        );
+
+        const combined = artifact.slice(
+            artifact.indexOf("## Contributors"),
+            artifact.indexOf("## Hotspots")
+        );
+        expect(combined).toContain(
+            "Note: rework capture failed for part of api"
+        );
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("buildReportArtifact scopes the incomplete-rework caveat to its own repository appendix", async () => {
+    const { handle, dir } = seedMultiRepoFixture();
+    try {
+        const artifact = await buildMultiRepoArtifact(
+            handle,
+            dir,
+            null,
+            MULTI_WINDOW_END_SHAS,
+            ["api"]
+        );
+
+        const appendix = artifact.slice(
+            artifact.indexOf("## Per-repo appendix")
+        );
+        const webBlock = appendix.slice(
+            appendix.indexOf("### web"),
+            appendix.indexOf("### api")
+        );
+        const apiBlock = appendix.slice(appendix.indexOf("### api"));
+
+        expect(apiBlock).toContain("rework capture failed for part of api");
+        expect(webBlock).not.toContain("rework capture failed");
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
 });

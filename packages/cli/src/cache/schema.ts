@@ -103,6 +103,41 @@ export const fileOwnership = sqliteTable(
     ]
 );
 
+// One row per (killing commit, path, victim commit): the count of parent lines
+// blame attributes to victimSha that sha deleted. victim_authored_at is copied
+// from blame rather than joined, because a victim older than config.since has
+// no commits row but its death can still fall inside the rework window.
+export const lineDeaths = sqliteTable(
+    "line_deaths",
+    {
+        repo: text("repo").notNull(),
+        sha: text("sha")
+            .notNull()
+            .references(() => commits.sha),
+        path: text("path").notNull(),
+        victimSha: text("victim_sha").notNull(),
+        victimAuthorId: integer("victim_author_id")
+            .notNull()
+            .references(() => authors.id),
+        victimAuthoredAt: integer("victim_authored_at").notNull(),
+        lines: integer("lines").notNull(),
+    },
+    (table) => [
+        primaryKey({
+            columns: [table.repo, table.sha, table.path, table.victimSha],
+        }),
+    ]
+);
+
+// Whether a repo's last line-death capture finished without failed candidates:
+// row counts in line_deaths cannot distinguish "complete" from "partial", and
+// only a complete capture may skip the blame pass on later runs.
+export const reworkCaptures = sqliteTable("rework_captures", {
+    repo: text("repo").primaryKey(),
+    failedCandidates: integer("failed_candidates").notNull(),
+    capturedAt: integer("captured_at").notNull(),
+});
+
 // login carries COLLATE NOCASE in ddl.ts, which Drizzle cannot express: GitHub
 // logins are case-insensitive, so the read-time join must be too.
 export const authorGithubLogins = sqliteTable("author_github_logins", {
@@ -171,6 +206,8 @@ export const cacheSchema = {
     sccSnapshots,
     extractions,
     fileOwnership,
+    lineDeaths,
+    reworkCaptures,
     authorGithubLogins,
     githubSyncs,
     tickets,
@@ -186,6 +223,8 @@ export const cacheTables: SQLiteTable[] = [
     sccSnapshots,
     extractions,
     fileOwnership,
+    lineDeaths,
+    reworkCaptures,
     authorGithubLogins,
     githubSyncs,
     tickets,

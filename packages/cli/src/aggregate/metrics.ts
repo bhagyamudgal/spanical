@@ -6,6 +6,7 @@ export type PerDevMetricKey =
     | "deleted"
     | "net"
     | "throughput"
+    | "reworkLines"
     | "filesTouched"
     | "avgCommitSize"
     | "activeDays";
@@ -34,6 +35,7 @@ export const PER_DEV_METRICS: MetricDefinition<PerDevMetricKey>[] = [
     { key: "deleted", label: "Lines deleted", flag: "trap" },
     { key: "net", label: "Net lines", flag: "trap" },
     { key: "throughput", label: "Throughput churn", flag: "context" },
+    { key: "reworkLines", label: "Rework lines", flag: "context" },
     { key: "filesTouched", label: "Files touched", flag: "context" },
     { key: "avgCommitSize", label: "Avg commit size", flag: "signal" },
     { key: "activeDays", label: "Active days", flag: "signal" },

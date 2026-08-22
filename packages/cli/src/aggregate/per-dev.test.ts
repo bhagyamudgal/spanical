@@ -3,7 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openCache } from "../cache/open";
-import { authors, commitAuthors, commits, fileChanges } from "../cache/schema";
+import {
+    authors,
+    commitAuthors,
+    commits,
+    fileChanges,
+    lineDeaths,
+} from "../cache/schema";
 import type { Period } from "../window/types";
 import {
     PER_DEV_METRICS,
@@ -163,6 +169,7 @@ const EXPECTED_ROLLUPS: DevPeriodRollup[] = [
         filesTouched: 1,
         avgCommitSize: 12,
         activeDays: 1,
+        reworkLines: null,
     },
     {
         period: "2025-07",
@@ -176,6 +183,7 @@ const EXPECTED_ROLLUPS: DevPeriodRollup[] = [
         filesTouched: 2,
         avgCommitSize: 7.5,
         activeDays: 2,
+        reworkLines: null,
     },
     {
         period: "2025-07",
@@ -189,6 +197,7 @@ const EXPECTED_ROLLUPS: DevPeriodRollup[] = [
         filesTouched: 3,
         avgCommitSize: 9.5,
         activeDays: 2,
+        reworkLines: null,
     },
 ];
 
@@ -310,6 +319,142 @@ test("aggregatePerDev repo-qualifies filesTouched across repos sharing a path", 
     }
 });
 
+test("aggregatePerDev charges rework to the victim author rather than the killing commit's author", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const { db } = handle;
+        // c3 is authored by dev-two on 2025-07-20 and kills seven lines born
+        // 2025-06-30 (20 days old, inside the 21-day window). Charging the
+        // killer's author would land this on dev-two instead of dev-one.
+        db.insert(lineDeaths)
+            .values({
+                repo: "web-app",
+                sha: "c3",
+                path: "src/c.ts",
+                victimSha: "v1",
+                victimAuthorId: 1,
+                victimAuthoredAt: Date.UTC(2025, 5, 30),
+                lines: 7,
+            })
+            .run();
+
+        const rollups = aggregatePerDev(handle.db, {
+            periods: [P2],
+            timezone: "UTC",
+            repo: "web-app",
+            reworkWindowDays: 21,
+        });
+
+        const byAuthor = new Map(
+            rollups.map((rollup) => [rollup.authorId, rollup.reworkLines])
+        );
+        expect(byAuthor.get(1)).toBe(7);
+        expect(byAuthor.get(2)).toBe(0);
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregatePerDev excludes deaths older than the rework window", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const { db } = handle;
+        // c2 kills on 2025-07-05; the victim was born 2025-06-01, 34 days
+        // earlier and outside the 21-day window.
+        db.insert(lineDeaths)
+            .values({
+                repo: "web-app",
+                sha: "c2",
+                path: "src/a.ts",
+                victimSha: "v1",
+                victimAuthorId: 1,
+                victimAuthoredAt: Date.UTC(2025, 5, 1),
+                lines: 100,
+            })
+            .run();
+
+        const rollups = aggregatePerDev(handle.db, {
+            periods: [P2],
+            timezone: "UTC",
+            repo: "web-app",
+            reworkWindowDays: 21,
+        });
+
+        for (const rollup of rollups) {
+            expect(rollup.reworkLines).toBe(0);
+        }
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregatePerDev excludes victims dated after their killing commit", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const { db } = handle;
+        // A line cannot die before it was written; a victim dated after its
+        // killer must never count, however small the gap.
+        db.insert(lineDeaths)
+            .values({
+                repo: "web-app",
+                sha: "c2",
+                path: "src/a.ts",
+                victimSha: "v1",
+                victimAuthorId: 1,
+                victimAuthoredAt: Date.UTC(2025, 6, 6),
+                lines: 9,
+            })
+            .run();
+
+        const rollups = aggregatePerDev(handle.db, {
+            periods: [P2],
+            timezone: "UTC",
+            repo: "web-app",
+            reworkWindowDays: 21,
+        });
+
+        for (const rollup of rollups) {
+            expect(rollup.reworkLines).toBe(0);
+        }
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
+test("aggregatePerDev reports rework as null when no rework window is passed", () => {
+    const { handle, dir } = seedFixture();
+    try {
+        const { db } = handle;
+        db.insert(lineDeaths)
+            .values({
+                repo: "web-app",
+                sha: "c2",
+                path: "src/a.ts",
+                victimSha: "v1",
+                victimAuthorId: 1,
+                victimAuthoredAt: Date.UTC(2025, 5, 20),
+                lines: 7,
+            })
+            .run();
+
+        const rollups = aggregatePerDev(handle.db, {
+            periods: [P2],
+            timezone: "UTC",
+            repo: "web-app",
+        });
+
+        for (const rollup of rollups) {
+            expect(rollup.reworkLines).toBeNull();
+        }
+    } finally {
+        handle.sqlite.close();
+        rmSync(dir, { recursive: true, force: true });
+    }
+});
+
 test("PER_DEV_METRICS carries every metric key with its spec read flag", () => {
     const expectedFlags: [PerDevMetricKey, ReadFlag][] = [
         ["commits", "trap"],
@@ -317,6 +462,7 @@ test("PER_DEV_METRICS carries every metric key with its spec read flag", () => {
         ["deleted", "trap"],
         ["net", "trap"],
         ["throughput", "context"],
+        ["reworkLines", "context"],
         ["filesTouched", "context"],
         ["avgCommitSize", "signal"],
         ["activeDays", "signal"],

@@ -119,6 +119,10 @@ export type DevPeriodRollup = {
     filesTouched: number;
     avgCommitSize: number | null;
     activeDays: number;
+    // Lines of the dev's own authorship deleted within reworkWindowDays of
+    // being written, whoever deleted them. Null where the rework pass did not
+    // run for the surface rendering this rollup.
+    reworkLines: number | null;
 };
 
 export type PeriodRollup = {
