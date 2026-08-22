@@ -88,7 +88,7 @@ main() {
         info "${YELLOW}Warning:${NC} ${INSTALL_DIR} is not in your PATH."
         info "Add this to your shell profile (~/.zshrc or ~/.bashrc):"
         echo ""
-        info "${DIM}export PATH=\"\${HOME}/.local/bin:\${PATH}\"${NC}"
+        info "${DIM}export PATH=\"${INSTALL_DIR}:\${PATH}\"${NC}"
         echo ""
     fi
 
