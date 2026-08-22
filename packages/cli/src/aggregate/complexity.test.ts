@@ -445,6 +445,9 @@ test("renderContributorsReport carries the caveat and notes non-zero unattribute
         });
         expect(withUnattributed).toContain("Complexity removed");
         expect(withUnattributed).toContain("approximate");
+        expect(withUnattributed).toContain(
+            "Co-authored-by trailers are not split"
+        );
         expect(withUnattributed).toContain("could not be attributed");
 
         const withoutUnattributed = renderContributorsReport(format, {

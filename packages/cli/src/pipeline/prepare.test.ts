@@ -191,11 +191,12 @@ test("ensureRework pages candidates through the keyset and completes after the l
                 extractedAt: 0,
             })
             .run();
-        // One past the page size forces a second keyset page of one row.
+        // One sha carrying one-past-the-page-size paths forces the keyset
+        // predicate through its path tie-breaker at the page boundary.
         db.insert(fileChanges)
             .values(
                 Array.from({ length: 501 }, (_, index) => ({
-                    sha: `k${String(index).padStart(3, "0")}`,
+                    sha: "k000",
                     repo: "web-app",
                     path: `/f${index}.ts`,
                     added: 10,
@@ -207,14 +208,22 @@ test("ensureRework pages candidates through the keyset and completes after the l
             .run();
 
         const calls: number[] = [];
+        const markersSeenDuringCapture: number[] = [];
         await ensureRework(db, RUN, CONFIG, {
             captureLineDeaths: async (opts) => {
                 calls.push(opts.candidates.length);
+                if (calls.length === 2) {
+                    markersSeenDuringCapture.push(
+                        db.select().from(reworkCaptures).all().length
+                    );
+                }
                 return { records: [], failedCandidates: 0 };
             },
         });
 
         expect(calls).toEqual([500, 1]);
+        // No completion marker may exist while the final page is still running.
+        expect(markersSeenDuringCapture).toEqual([0]);
         const marker = db
             .select()
             .from(reworkCaptures)

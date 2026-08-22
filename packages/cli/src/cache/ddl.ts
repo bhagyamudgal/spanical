@@ -141,6 +141,13 @@ const INDEX_DEFINITIONS = [
     },
     { name: "idx_file_changes_repo", table: "file_changes", columns: ["repo"] },
     { name: "idx_file_changes_path", table: "file_changes", columns: ["path"] },
+    // Rework candidate paging orders by (sha, path) within one repo; the
+    // matching index turns each keyset page into a seek instead of a scan.
+    {
+        name: "idx_file_changes_repo_sha_path",
+        table: "file_changes",
+        columns: ["repo", "sha", "path"],
+    },
     {
         name: "idx_scc_snapshots_repo",
         table: "scc_snapshots",

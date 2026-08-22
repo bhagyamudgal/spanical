@@ -567,3 +567,71 @@ test("captureLineDeaths keeps the original author across a cross-file copy", asy
         rmSync(repo, { recursive: true, force: true });
     }
 });
+
+test("captureLineDeaths credits a co-authored victim's lines to the blame author alone", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "spanical-rework-trailer-"));
+    function git(args: string[]): void {
+        const result = Bun.spawnSync(["git", ...args], { cwd: repo });
+        if (result.exitCode !== 0) {
+            throw new Error(
+                `git ${args.join(" ")} failed: ${result.stderr.toString()}`
+            );
+        }
+    }
+    try {
+        git(["init", "-q", "-b", "main"]);
+        git(["config", "user.name", "ci"]);
+        git(["config", "user.email", "ci@example.com"]);
+        writeFileSync(join(repo, "f.txt"), "one\ntwo\nthree\n");
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "feat: shared work",
+            "-m",
+            "Co-authored-by: dev-two <dev-two@example.com>",
+            "--author=dev-one <dev-one@example.com>",
+        ]);
+        writeFileSync(join(repo, "f.txt"), "one\n");
+        git(["add", "-A"]);
+        git([
+            "commit",
+            "-q",
+            "-m",
+            "refactor: drop lines",
+            "--author=dev-two <dev-two@example.com>",
+        ]);
+        const shas = Bun.spawnSync(["git", "log", "--format=%H", "--reverse"], {
+            cwd: repo,
+        })
+            .stdout.toString()
+            .trim()
+            .split("\n");
+        const originalSha = shas[0];
+        const killerSha = shas[1];
+        if (!originalSha || !killerSha) {
+            throw new Error("Expected two commits in the fixture repo");
+        }
+
+        const capture = await captureLineDeaths({
+            repoName: "web-app",
+            repoPath: repo,
+            candidates: [{ sha: killerSha, path: "f.txt" }],
+            // The trailer promises dev-two a churn share; rework deliberately
+            // does not honor it, and this pins that contract.
+            resolveAuthorId: (email) =>
+                email === "dev-one@example.com" ? 7 : 9,
+        });
+
+        expect(capture.failedCandidates).toBe(0);
+        expect(capture.records).toHaveLength(1);
+        expect(capture.records[0]).toMatchObject({
+            victimAuthorId: 7,
+            victimSha: originalSha,
+            lines: 2,
+        });
+    } finally {
+        rmSync(repo, { recursive: true, force: true });
+    }
+});
