@@ -3,7 +3,8 @@ export const UPDATE_ERROR_CODES = {
     DOWNLOAD_FAILED: "UPDATE_DOWNLOAD_FAILED",
 } as const;
 
-type UpdateErrorCode = (typeof UPDATE_ERROR_CODES)[keyof typeof UPDATE_ERROR_CODES];
+type UpdateErrorCode =
+    (typeof UPDATE_ERROR_CODES)[keyof typeof UPDATE_ERROR_CODES];
 
 export class UpdateError extends Error {
     readonly code: UpdateErrorCode;

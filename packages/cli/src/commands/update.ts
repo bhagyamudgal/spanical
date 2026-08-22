@@ -62,7 +62,9 @@ export const updateCommand = command({
         }
         const assetName = getAssetName();
         if (!assetName) {
-            fail(`Unsupported platform/arch: ${process.platform}/${process.arch}`);
+            fail(
+                `Unsupported platform/arch: ${process.platform}/${process.arch}`
+            );
         }
 
         const currentVersion = pkg.version;
@@ -76,9 +78,8 @@ export const updateCommand = command({
 
         console.log(`Current version: v${currentVersion}`);
 
-        const { data: release, error: releaseError } = await tryCatch(
-            fetchLatestRelease()
-        );
+        const { data: release, error: releaseError } =
+            await tryCatch(fetchLatestRelease());
         if (releaseError) {
             fail(
                 releaseError instanceof UpdateError
@@ -137,9 +138,7 @@ export const updateCommand = command({
         }
         console.log("Verified SHA256 checksum.");
 
-        const { error: chmodError } = await tryCatch(
-            fs.chmod(tmpPath, 0o755)
-        );
+        const { error: chmodError } = await tryCatch(fs.chmod(tmpPath, 0o755));
         if (chmodError) {
             await removeQuietly(tmpPath);
             fail(`Failed to mark binary executable: ${chmodError.message}`);

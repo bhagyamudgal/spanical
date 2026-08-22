@@ -201,93 +201,83 @@ export async function downloadAsset(
     timeoutMs: number = DEFAULT_ASSET_TIMEOUT_MS
 ): Promise<void> {
     const { error } = await tryCatch(
-        withTimeout(
-            asset.browser_download_url,
-            timeoutMs,
-            async (response) => {
-                if (!response.ok) {
+        withTimeout(asset.browser_download_url, timeoutMs, async (response) => {
+            if (!response.ok) {
+                throw new Error(
+                    `Download ${asset.name} failed: ${response.status} ${response.statusText}`
+                );
+            }
+            const contentLength = response.headers.get("content-length");
+            let declaredBytes: number | null = null;
+            if (contentLength !== null) {
+                const declared = Number(contentLength);
+                if (Number.isFinite(declared) && declared > MAX_ASSET_BYTES) {
                     throw new Error(
-                        `Download ${asset.name} failed: ${response.status} ${response.statusText}`
+                        `Download ${asset.name} refused: declared size ${declared} bytes exceeds cap ${MAX_ASSET_BYTES} bytes`
                     );
                 }
-                const contentLength = response.headers.get("content-length");
-                let declaredBytes: number | null = null;
-                if (contentLength !== null) {
-                    const declared = Number(contentLength);
-                    if (
-                        Number.isFinite(declared) &&
-                        declared > MAX_ASSET_BYTES
-                    ) {
+                if (Number.isFinite(declared)) declaredBytes = declared;
+            }
+            if (!response.body) {
+                throw new Error(
+                    `Download ${asset.name} refused: empty response body`
+                );
+            }
+            const reader = response.body.getReader();
+            const writer = fs.createWriteStream(destPath, { flags: "w" });
+            // Write/open failures (EACCES, ENOSPC, EIO) arrive on this event, not
+            // as write() return values; without a listener Bun kills the process.
+            const writerFailure = new Promise<never>((_, reject) => {
+                writer.once("error", reject);
+            });
+            writerFailure.catch(() => {});
+            let bytesReceived = 0;
+            let writerClosed = false;
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (!value) continue;
+                    bytesReceived += value.byteLength;
+                    if (bytesReceived > MAX_ASSET_BYTES) {
                         throw new Error(
-                            `Download ${asset.name} refused: declared size ${declared} bytes exceeds cap ${MAX_ASSET_BYTES} bytes`
+                            `Download ${asset.name} exceeded cap: ${bytesReceived} bytes > ${MAX_ASSET_BYTES} bytes`
                         );
                     }
-                    if (Number.isFinite(declared)) declaredBytes = declared;
+                    if (!writer.write(value)) {
+                        await Promise.race([
+                            once(writer, "drain"),
+                            writerFailure,
+                        ]);
+                    }
                 }
-                if (!response.body) {
+                if (bytesReceived === 0) {
                     throw new Error(
                         `Download ${asset.name} refused: empty response body`
                     );
                 }
-                const reader = response.body.getReader();
-                const writer = fs.createWriteStream(destPath, { flags: "w" });
-                // Write/open failures (EACCES, ENOSPC, EIO) arrive on this event, not
-                // as write() return values; without a listener Bun kills the process.
-                const writerFailure = new Promise<never>((_, reject) => {
-                    writer.once("error", reject);
-                });
-                writerFailure.catch(() => {});
-                let bytesReceived = 0;
-                let writerClosed = false;
-                try {
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        if (!value) continue;
-                        bytesReceived += value.byteLength;
-                        if (bytesReceived > MAX_ASSET_BYTES) {
-                            throw new Error(
-                                `Download ${asset.name} exceeded cap: ${bytesReceived} bytes > ${MAX_ASSET_BYTES} bytes`
-                            );
-                        }
-                        if (!writer.write(value)) {
-                            await Promise.race([
-                                once(writer, "drain"),
-                                writerFailure,
-                            ]);
-                        }
-                    }
-                    if (bytesReceived === 0) {
-                        throw new Error(
-                            `Download ${asset.name} refused: empty response body`
-                        );
-                    }
-                    if (
-                        declaredBytes !== null &&
-                        bytesReceived !== declaredBytes
-                    ) {
-                        throw new Error(
-                            `Download ${asset.name} truncated: received ${bytesReceived} bytes, expected ${declaredBytes}`
-                        );
-                    }
-                    await Promise.race([
-                        new Promise<void>((resolve, reject) => {
-                            writer.end((err: NodeJS.ErrnoException | null) => {
-                                if (err) reject(err);
-                                else resolve();
-                            });
-                        }),
-                        writerFailure,
-                    ]);
-                    writerClosed = true;
-                } finally {
-                    tryCatchSync(() => reader.releaseLock());
-                    if (!writerClosed) {
-                        writer.destroy();
-                    }
+                if (declaredBytes !== null && bytesReceived !== declaredBytes) {
+                    throw new Error(
+                        `Download ${asset.name} truncated: received ${bytesReceived} bytes, expected ${declaredBytes}`
+                    );
+                }
+                await Promise.race([
+                    new Promise<void>((resolve, reject) => {
+                        writer.end((err: NodeJS.ErrnoException | null) => {
+                            if (err) reject(err);
+                            else resolve();
+                        });
+                    }),
+                    writerFailure,
+                ]);
+                writerClosed = true;
+            } finally {
+                tryCatchSync(() => reader.releaseLock());
+                if (!writerClosed) {
+                    writer.destroy();
                 }
             }
-        )
+        })
     );
     if (error) {
         const { error: cleanupError } = tryCatchSync(() =>

@@ -29,6 +29,8 @@ test("compareVersions applies SemVer prerelease identifier rules", () => {
     // A shorter prerelease list ranks below a longer one sharing the same prefix.
     expect(compareVersions("1.0.0-alpha", "1.0.0-alpha.1")).toBeLessThan(0);
     // Multi-part numeric identifiers compare pairwise.
-    expect(compareVersions("1.0.0-alpha.2.10", "1.0.0-alpha.2.9")).toBeGreaterThan(0);
+    expect(
+        compareVersions("1.0.0-alpha.2.10", "1.0.0-alpha.2.9")
+    ).toBeGreaterThan(0);
     expect(compareVersions("1.0.0-beta.1", "1.0.0-beta.1")).toBe(0);
 });
