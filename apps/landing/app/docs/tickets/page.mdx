@@ -1,0 +1,135 @@
+export const metadata = {
+    title: "tickets",
+    description:
+        "Show per-dev pull request and issue flow, cycle time and thrash (GitHub).",
+};
+
+# tickets
+
+`spanical tickets` adds the ticket layer: pull requests and issues per
+developer, how long work stays open, and how much of it gets undone. Pull
+requests are the delivery unit (a merge is throughput); issues are the
+planning unit (open and close counts read as scope signal, never as
+delivery).
+
+```bash
+spanical tickets [flags]
+```
+
+## Options
+
+| Option                             | Values | Notes                                  |
+| ---------------------------------- | ------ | -------------------------------------- |
+| All global flags except `--period` |        | See [global flags](/docs/global-flags) |
+
+<Warning>
+tickets is the only command that rejects `--period`, before any work runs:
+
+```
+--period is not supported by tickets: counts, cycle time and thrash are reported once for the whole window, never split by period. Drop --period, or narrow the window with --since and --until.
+```
+
+</Warning>
+
+## Requirements
+
+Two preconditions; each missing one fails fast with its exact message:
+
+- A `tickets` section in spanical.config.ts: `No tickets section in spanical.config.ts, so the GitHub layer was never asked for. Add tickets: { source: "github", github: { token: "env:GITHUB_TOKEN" } } to enable it.`
+- The token exported: `GITHUB_TOKEN is not set. Export a fine-grained personal access token with read access to the repositories you are analysing.`
+
+## Sync behavior
+
+Tickets sync over the GitHub GraphQL API into the same local SQLite cache as
+everything else. Syncs are cursor-paginated and incremental: each repo keeps
+a watermark so repeat runs pull only what changed. Repos sync sequentially
+because the rate budget belongs to the token, not to your run.
+
+Slug resolution uses config's `github:` override when present, otherwise
+parses owner/name from the origin remote (ssh and https forms).
+
+Two cache-purge notes you may see:
+
+- Repointing a repo at a new slug: `<repo> now points at <slug>; dropping its cached tickets and re-syncing from scratch.`
+- Turning includeIssues off: `<repo> no longer syncs issues; dropping <n> cached issue row(s) so they stop counting.`
+
+GitHub logins that match no configured author still count, on their own row,
+with a ready-to-paste warning on stderr:
+
+```
+warning: 1 GitHub login(s) are not mapped to an author and were counted on their own. Merge them in spanical.config.ts:
+    authors: {
+        "stranger-gh": { emails: ["..."], github: ["stranger-gh"] },
+    },
+```
+
+Network trouble retries up to three times with backoff, printing notes like
+`note: GitHub GraphQL pullRequests failed: <message>; waiting <ms>ms, then retrying (1 of 3).`
+
+## Output
+
+The main table is titled `Ticket flow · credited to the <attribution>`
+(assignee, author, or closer from config): Author, Opened, Merged, Closed,
+Reopened, Reverted, Cycle time h, PR size. Then optionally the merged pull
+request size buckets (0-9, 10-99, 100-499, 500-999, 1000+ lines), then a team
+line summarizing counts, median cycle time, and median PR size.
+
+Fixed notes follow: what Opened and Closed count under the current
+includeIssues setting, and the revert-matching caveat. Revert matching is
+approximate by necessity: GitHub exposes no revert relationship, so a pull
+request titled `Revert "X"` pairs by title with the most recently merged
+cached pull request titled X that had already merged when the revert was
+opened. Thrash counts against the reverted work, not against whoever reverted
+it.
+
+Empty window: `No ticket activity in <window> for <repos> — nothing was opened, merged or closed.`
+
+## Example
+
+Values are illustrative. The CLI renders bordered tables; run
+`spanical tickets --format md` for pipe-table output:
+
+```
+$ spanical tickets --last 3m --format md
+Ticket flow · credited to the assignee
+
+| Author   | Opened | Merged | Closed | Reopened | Reverted | Cycle time h | PR size |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| dev-one  |      6 |      5 |      4 |        1 |        1 |        41.7 |     118 |
+| dev-two  |      4 |      3 |      2 |        0 |        0 |        12.9 |      34 |
+
+Merged pull request size (lines changed)
+
+| Lines    | Pull requests | Share |
+| --- | ---: | ---: |
+| 0-9      |             1 |   13% |
+| 10-99    |             5 |   62% |
+| 100-499  |             2 |   25% |
+| 500-999  |             0 |    0% |
+| 1000+    |             0 |    0% |
+
+Team: 10 opened · 8 merged · 6 closed · 1 reopened · 1 reverted · cycle time 31h median · PR size 84 lines median
+
+Note: Opened and closed count pull requests and issues together, ...
+```
+
+JSON output, top-level keys of the aggregation:
+
+```json
+{
+    "attribution": "assignee",
+    "coverage": { "includeIssues": true, "lateSyncFloors": [] },
+    "devs": ["...DevTicketRollup..."],
+    "team": {
+        "counts": {},
+        "cycleTimeMedianHours": 31,
+        "pullRequestSizeMedian": 84,
+        "unmatchedReverts": 0,
+        "cycleTimesDiscarded": 0
+    },
+    "pullRequestSizes": [
+        { "label": "10-99", "pullRequests": 5, "share": 0.62 }
+    ],
+    "unattributed": []
+}
+```

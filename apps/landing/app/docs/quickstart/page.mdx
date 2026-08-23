@@ -1,0 +1,88 @@
+export const metadata = {
+    title: "Quickstart",
+    description:
+        "Get a report running, then dig into hotspots and ticket flow.",
+};
+
+# Quickstart
+
+There is no init step and no account. If you have git and the `spanical`
+binary, you are one command away from a report.
+
+## Run your first report
+
+`cd` into any git repository and run `report`:
+
+```bash
+spanical report
+```
+
+Real output against a small fixture repo:
+
+```
+$ cd repo-alpha
+$ spanical report
+note: no spanical.config.ts found; analysing .../repo-alpha with default settings.
+last 12m (2025-08 → 2026-08) · monthly · 1 repo · UTC
+
+  Net growth        +104 LOC     Total now      93 LOC
+  Throughput churn  204 lines    Commits        46 (no-merge)
+  Active devs       3            Busiest month  2026-02
+
+Top hotspots (refactor shortlist)
+  repo-alpha/src/core/engine.ts  churn 3 · cx 0 · owners 3
+
+Bus-factor warnings: 0 files owned > 80% by a single dev in 0 dirs
+
+Full report -> .../repo-alpha/spanical-report-2025-08_2026-08.md
+```
+
+Three things happened on that first run:
+
+1. A config was discovered by walking up from your working directory; with
+   none found, defaults applied and a note said so
+2. The SQLite cache was created at `<that directory>/.spanical/cache.db`
+3. Git history was extracted, aggregated, and written to a Markdown artifact
+   in the current directory
+
+Open `spanical-report-2025-08_2026-08.md` for the full report: activity per
+period, the timeline narrative, contributors, hotspots, ownership, size and
+complexity.
+
+<Tip>
+    A second identical run skips extraction entirely (cache hit). Use `cache
+    rebuild` when you want to force a fresh pass.
+</Tip>
+
+## Go deeper
+
+Find the refactor shortlist with `hotspots`. Files rank by change frequency
+combined with complexity, so a file touched often and carrying complexity
+floats up while bulk reformats do not:
+
+```bash
+spanical hotspots
+```
+
+Add the ticket layer for pull request flow, cycle time, thrash, and review
+coverage. These come from GitHub: add a tickets section to
+`spanical.config.ts`, export a token, and run:
+
+```bash
+export GITHUB_TOKEN=github_pat_your_token_here
+spanical tickets
+spanical reviews
+```
+
+The token needs read access to the repositories you analyse. Full setup is on
+[Config file](/docs/configuration).
+
+Running outside any git repository without a config fails with directions
+rather than guessing:
+
+```
+No spanical.config.ts found and /some/dir is not inside a git repository. Run spanical from a git repository, pass --repo <path>, or create a spanical.config.ts.
+```
+
+Next: [installation](/docs/installation) if you have not installed yet, or
+the rest of these docs for everything else.

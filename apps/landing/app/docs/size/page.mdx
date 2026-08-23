@@ -1,0 +1,70 @@
+export const metadata = {
+    title: "size",
+    description:
+        "Show code size and complexity trend from monthly scc snapshots.",
+};
+
+# size
+
+`spanical size` answers "how big and how complex is the codebase getting",
+one row per month. Values come from running scc against git worktrees pinned
+to each month-end commit, so history reads exactly as it was, not as a later
+cleanup made it look.
+
+```bash
+spanical size [flags]
+```
+
+## Options
+
+| Option           | Values | Notes                                                             |
+| ---------------- | ------ | ----------------------------------------------------------------- |
+| All global flags |        | See [global flags](/docs/global-flags); `--by` has no effect here |
+
+## Behavior
+
+One row per month across the selected window; open-start windows (`--until`
+without `--since`) reach back to the earliest cached commit: Month, Total
+code, Total complexity, Languages (rendered like `TypeScript 6, SQL 1`,
+counts of code lines per language). Complexity is cyclomatic complexity as
+reported by scc at each snapshot.
+
+Months with no snapshot data are absent. If nothing could be measured at all:
+
+```
+No size trend: no monthly boundary SCC snapshot data was available for the selected repositories.
+```
+
+As with every snapshot-backed command, shallow clones must be un-shallowed
+first (`git fetch --unshallow`).
+
+## Examples
+
+```
+$ spanical size
+┌─────────┬────────────┬──────────────────┬─────────────────────────────────┐
+│ Month   │ Total code │ Total complexity │ Languages                       │
+├─────────┼────────────┼──────────────────┼─────────────────────────────────┤
+│ 2026-01 │          4 │                2 │ TypeScript 4                    │
+...
+│ 2026-08 │         13 │                0 │ Markdown 6, SQL 1, TypeScript 6 │
+└─────────┴────────────┴──────────────────┴─────────────────────────────────┘
+```
+
+JSON output, one object per monthly snapshot:
+
+```json
+[
+    {
+        "month": "2026-08",
+        "totalCode": 93,
+        "totalComplexity": 0,
+        "languages": [
+            { "language": "Markdown", "code": 6 },
+            ...
+        ]
+    }
+]
+```
+
+Truncated after the first language entry.
