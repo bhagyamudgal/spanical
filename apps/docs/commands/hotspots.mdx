@@ -3,7 +3,7 @@ title: "Hotspots"
 description: "Rank files by change frequency and complexity to surface the refactor shortlist."
 ---
 
-`spanical hotspots` is where the risk story condenses: files that keep changing and carry complexity at the same time. Neither axis alone qualifies; a stable complex file and a constantly churned trivial file both stay off the list, because the score is the product of the two.
+`spanical hotspots` is where the risk story condenses: files that keep changing and carry complexity at the same time. Every changed file past the eligibility rule qualifies; the score is the product of the two axes, so a stable complex file and a constantly churned trivial file sink toward the bottom of the ranking rather than being excluded.
 
 ```bash
 spanical hotspots [flags]

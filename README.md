@@ -54,7 +54,7 @@ spanical tickets                   # PR and issue flow (needs tickets config + G
 
 `spanical hotspots` ranks files by change frequency and complexity:
 
-```
+```text
 $ spanical hotspots
 ┌───────────────────────────────┬─────────────┬────────────┬───────┬─────────┐
 │ Path                          │ Change freq │ Complexity │ Score │ #Owners │

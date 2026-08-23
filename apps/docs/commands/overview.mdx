@@ -7,8 +7,8 @@ spanical's commands each answer one question about your engineering, drawn from 
 
 Shared behavior worth knowing once:
 
-- Every command resolves config and window, extracts into the local SQLite cache when the repo tip or config changed, then renders
-- Output goes to stdout in `table` format by default; `--format json` is pretty-printed with a four-space indent, `--format md` renders GitHub-flavored tables
+- Analytics commands resolve config and window, extract into the local SQLite cache when the repo tip or config changed, then render; `cache` and `update` sit outside this lifecycle
+- Analytics commands write to stdout in `table` format by default; `--format json` is pretty-printed with a four-space indent, `--format md` renders GitHub-flavored tables
 - Per-developer tables carry a metric legend marking each column as `(signal)`, `(context)`, or `(volume)`; volume columns are narrative only, never rankings
 - Failures print one sentence to stderr and exit 1
 
@@ -45,7 +45,7 @@ These commands read git history only. No network, no tokens.
     </Card>
 </CardGroup>
 
-Hotspot eligibility needs both axes at once; see [hotspots](/commands/hotspots) for how files qualify.
+Hotspot scoring multiplies the two axes at once, so a file weak on either sinks in the ranking; see [hotspots](/commands/hotspots) for how files qualify.
 
 ## Ticket layer
 
