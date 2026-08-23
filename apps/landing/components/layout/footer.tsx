@@ -1,0 +1,153 @@
+import { Github, type LucideIcon } from "lucide-react";
+import Link from "next/link";
+import { Logo } from "@/components/ui/logo";
+import { GITHUB_URL } from "@/lib/constants";
+
+type FooterLink = {
+    label: string;
+    href: string;
+    icon?: LucideIcon;
+};
+
+type FooterLinks = {
+    product: FooterLink[];
+    resources: FooterLink[];
+    connect: FooterLink[];
+};
+
+const footerLinks: FooterLinks = {
+    product: [
+        { label: "Features", href: "/#features" },
+        { label: "Installation", href: "/#installation" },
+        { label: "How it Works", href: "/#how-it-works" },
+    ],
+    resources: [
+        {
+            label: "Documentation",
+            href: "/docs",
+        },
+        {
+            label: "Changelog",
+            href: "https://github.com/bhagyamudgal/spanical/blob/main/packages/cli/CHANGELOG.md",
+        },
+        {
+            label: "Releases",
+            href: "https://github.com/bhagyamudgal/spanical/releases",
+        },
+    ],
+    connect: [
+        {
+            label: "GitHub",
+            href: GITHUB_URL,
+            icon: Github,
+        },
+    ],
+};
+
+export function Footer() {
+    return (
+        <footer className="border-t border-primary/10 bg-background dark:shadow-[0_-1px_20px_var(--glow-teal)]">
+            <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+                <div className="flex flex-col justify-between gap-12 lg:flex-row">
+                    <div className="max-w-xs">
+                        <Logo size="sm" />
+                        <p className="mt-3 text-sm text-muted-foreground">
+                            Local-first code insights from git history:
+                            throughput churn, hotspots, ownership, and an
+                            optional GitHub ticket layer. Nothing leaves the
+                            machine.
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 sm:gap-12">
+                        <div>
+                            <h3 className="text-sm font-semibold text-foreground">
+                                Product
+                            </h3>
+                            <ul className="mt-4 space-y-3">
+                                {footerLinks.product.map((link) => (
+                                    <li key={link.href}>
+                                        <Link
+                                            href={link.href}
+                                            className="text-sm text-muted-foreground transition-colors hover:text-primary"
+                                        >
+                                            {link.label}
+                                        </Link>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+
+                        <div>
+                            <h3 className="text-sm font-semibold text-foreground">
+                                Resources
+                            </h3>
+                            <ul className="mt-4 space-y-3">
+                                {footerLinks.resources.map((link) => {
+                                    const isInternal =
+                                        link.href.startsWith("/");
+                                    const className =
+                                        "text-sm text-muted-foreground transition-colors hover:text-primary";
+                                    return (
+                                        <li key={link.href}>
+                                            {isInternal ? (
+                                                <Link
+                                                    href={link.href}
+                                                    className={className}
+                                                >
+                                                    {link.label}
+                                                </Link>
+                                            ) : (
+                                                <a
+                                                    href={link.href}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className={className}
+                                                >
+                                                    {link.label}
+                                                </a>
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
+
+                        <div>
+                            <h3 className="text-sm font-semibold text-foreground">
+                                Connect
+                            </h3>
+                            <ul className="mt-4 space-y-3">
+                                {footerLinks.connect.map((link) => (
+                                    <li key={link.href}>
+                                        <a
+                                            href={link.href}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-primary"
+                                        >
+                                            {link.icon && (
+                                                <link.icon className="h-4 w-4" />
+                                            )}
+                                            {link.label}
+                                        </a>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="mt-16 overflow-hidden text-center">
+                    <Logo size="xl" showCursor />
+                </div>
+
+                <div className="mt-8 border-t border-border pt-8">
+                    <p className="text-center text-sm text-muted-foreground">
+                        Built with TypeScript &amp; Bun.
+                    </p>
+                </div>
+            </div>
+        </footer>
+    );
+}

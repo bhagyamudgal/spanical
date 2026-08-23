@@ -1,0 +1,80 @@
+export const metadata = {
+    title: "Global flags",
+    description:
+        "The one flag set every spanical subcommand accepts, with exact defaults, precedence rules, and the flags some commands reject.",
+};
+
+# Global flags
+
+Every subcommand accepts the same shared flag set. The table below is the
+complete list; descriptions are the exact `--help` strings.
+
+| Flag         | Type                                          | Description                                        | Default                                          |
+| ------------ | --------------------------------------------- | -------------------------------------------------- | ------------------------------------------------ |
+| `--config`   | string                                        | Path to spanical.config.ts                         | discovered ([config file](/docs/configuration))  |
+| `--repo`     | string                                        | Repo path(s), comma-separated; overrides config    | cwd's git repo when no config, else config.repos |
+| `--last`     | string                                        | Relative window, e.g. 30d, 6m, 1y                  | last 12 months                                   |
+| `--this`     | `week` \| `month` \| `quarter` \| `year`      | Current calendar period                            | none                                             |
+| `--ytd`      | boolean                                       | Year to date                                       | false                                            |
+| `--since`    | string                                        | Window start (YYYY-MM-DD)                          | none                                             |
+| `--until`    | string                                        | Window end (YYYY-MM-DD)                            | now (that day included)                          |
+| `--period`   | `week` \| `month` \| `quarter`                | Force granularity                                  | automatic ([time windows](/docs/time-windows))   |
+| `--tz`       | string                                        | IANA timezone for period boundaries                | config.timezone, default `"UTC"`                 |
+| `--exclude`  | string                                        | Exclude glob(s), comma-separated; overrides config | config.exclude defaults                          |
+| `--by`       | `dev` \| `file` \| `dir` \| `language`        | Grouping axis                                      | none                                             |
+| `--format`   | `table` \| `json` \| `md`; report adds `html` | Output format                                      | table                                            |
+| `--out`      | string                                        | Write report to file                               | stdout; report writes a dated file in cwd        |
+| `--no-cache` | boolean                                       | Force fresh extraction                             | false                                            |
+
+brocli also adds `-h, --help` and `-v, --version`. `spanical --version`
+prints the package version (currently 0.1.0).
+
+## Precedence
+
+Flags override config values: `--tz` replaces config.timezone, `--exclude`
+replaces config.exclude, and `--repo` picks directories from config.repos
+while carrying each matched entry's branch and github settings. Window
+selectors come from flags only; config.since bounds how deep extraction and
+the GitHub sync reach, never the display window.
+
+## Flags with caveats
+
+<Warning>
+    Only `churn --by dev` changes output. Every command parses `--by` without
+    error, but `file`, `dir`, and `language` are consumed nowhere and silently
+    fall back to the default rendering. On most commands even `dev` has no
+    effect.
+</Warning>
+
+<Warning>
+    `report --format json` and `report --format md` behave identically to the
+    default run: same terminal headline, same Markdown artifact. Only `html`
+    changes anything (the artifact becomes an HTML dashboard). See
+    [report](/docs/report).
+</Warning>
+
+Passing `html` to any other command fails at parse time, before any work:
+
+```
+Invalid value: value for the argument '--format' must be either one of the following: table, json, md; Received: html
+```
+
+`--no-cache` does two things: it forces fresh extraction, and it restarts the
+GitHub ticket sync walk from the configured `since` bound for that run.
+
+Unknown flags also fail at parse time:
+
+```
+Unrecognized options for command 'churn': --bogus
+```
+
+`cache` subcommands parse and then ignore all global flags; `cache stats
+--last abc` succeeds because the cache commands never consult window state.
+
+### A --repo naming pitfall
+
+When a config exists and you pass `--repo <path>` whose basename differs from
+the configured repo `name`, that repository is renamed for the run. If rows
+under the old name are already cached, extraction fails with `UNIQUE
+constraint failed: commits.sha`. Keep config names equal to directory
+basenames, or avoid mixing `--repo` with configs that name repos differently.

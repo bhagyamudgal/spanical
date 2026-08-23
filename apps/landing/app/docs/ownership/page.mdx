@@ -1,0 +1,89 @@
+export const metadata = {
+    title: "ownership",
+    description:
+        "Show surviving-line ownership and bus-factor risk from git blame at HEAD.",
+};
+
+# ownership
+
+`spanical ownership` reads the code as it stands right now: for every file
+big enough to matter, who wrote the lines that survived, and which areas of
+the tree ride on one person. Because it measures HEAD via `git blame`, the
+result is a property of today's codebase, independent of your analysis
+window.
+
+```bash
+spanical ownership [flags]
+```
+
+## Options
+
+| Option           | Values | Notes                                                                                                                 |
+| ---------------- | ------ | --------------------------------------------------------------------------------------------------------------------- |
+| All global flags |        | See [global flags](/docs/global-flags); window flags affect only extraction scope, since ownership is a HEAD property |
+
+## Behavior
+
+Eligible files are those with at least `hotspot.minFileLines` code lines
+(default 50) at HEAD. Two tables print:
+
+1. Per-file ownership: Path (`repo/path`), Lines, Primary owner (the author
+   over 50% of surviving lines; `- ` when none), Ownership %, number of
+   owners, Sole-owned yes/no. Sole-owned means one author holds at least
+   `busFactorThreshold` (default 80%)
+2. The bus-factor map: sole-owner files grouped by immediate parent
+   directory, so you can see which areas depend on fewest heads. When nothing
+   qualifies: `No bus-factor warnings: no file met the 80% sole-ownership threshold.`
+   (threshold from config)
+
+A fixed caveat always follows: ownership credits every surviving line to its
+single git blame author; Co-authored-by trailers are not split, unlike churn
+attribution.
+
+With no blame data at all: `No ownership data: no surviving blame rows were available for files with at least 50 code lines.`
+
+## Examples
+
+```
+$ spanical ownership
+┌───────────────────────────────┬───────┬──────────────────┬─────────────┬─────────┬────────────┐
+│ Path                          │ Lines │ Primary owner    │ Ownership % │ #Owners │ Sole-owned │
+├───────────────────────────────┼───────┼──────────────────┼─────────────┼─────────┼────────────┤
+│ repo-alpha/src/core/engine.ts │    80 │ dev1@example.com │         63% │       3 │ -          │
+└───────────────────────────────┴───────┴──────────────────┴─────────────┴─────────┴────────────┘
+
+No bus-factor warnings: no file met the 80% sole-ownership threshold.
+
+Note: ownership credits every surviving line to its single git blame author; Co-authored-by trailers are not split, unlike churn attribution.
+```
+
+JSON output:
+
+```json
+{
+    "files": [
+        {
+            "repo": "repo-alpha",
+            "path": "src/core/engine.ts",
+            "totalLines": 80,
+            "ownerCount": 3,
+            "primaryOwner": "dev1@example.com",
+            "primaryShare": 0.625,
+            "isSoleOwned": false,
+            "soleOwner": null,
+            "shares": [
+                {
+                    "author": "dev1@example.com",
+                    "survivingLines": 50,
+                    "share": 0.625
+                }
+            ]
+        }
+    ],
+    "busFactor": []
+}
+```
+
+Lowering `hotspot.minFileLines` in config brings smaller files into both
+tables; the example above used the default 50-line floor first and a 20-line
+floor in a second run.

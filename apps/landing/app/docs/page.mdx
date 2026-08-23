@@ -1,0 +1,111 @@
+export const metadata = {
+    title: "Introduction",
+    description:
+        "spanical reads git history and reports how much was built, when, by whom, and where the codebase is getting risky.",
+};
+
+# Introduction
+
+spanical is a local-first code-insights CLI. Point it at any git repository
+(or a list of them) and it tells the story of a stretch of engineering: how
+much was built, when, by whom, and where the codebase is getting risky.
+
+## What it measures
+
+Each run computes from real git data:
+
+- Throughput churn (added + deleted lines) and commit counts per period, with
+  a per-developer breakdown
+- Monthly size and complexity trends, from scc snapshots of each month-end
+  commit
+- Ownership and bus factor, from `git blame` over the lines that survive at
+  HEAD
+- Hotspots: files that score high on change frequency and complexity at once,
+  ranked as a refactor shortlist
+- An auto-narrated timeline: dominant commits, churn spikes, removal periods
+- An optional ticket layer over GitHub: pull request flow, cycle time,
+  thrash, review load and review coverage
+
+These docs reuse the report's own vocabulary (throughput churn, hotspot,
+sole owner), so a term means the same thing here as in the output.
+
+## Local-first by construction
+
+Everything runs on your machine:
+
+- Extraction lands in a SQLite cache under `.spanical/cache.db`, next to your
+  config
+- Size and complexity come from scc snapshots computed locally; scc itself is
+  auto-downloaded once, checksum verified, into `~/.spanical/bin` if you do
+  not already have it
+- Ownership comes from `git blame`
+
+Network access happens in exactly two cases: the optional GitHub GraphQL sync
+for the ticket layer, and that first-run scc download. There is no account,
+no telemetry, no cloud service.
+
+## Who it is for
+
+Tech leads and staff engineers who want the refactor shortlist, bus-factor
+warnings, and review coverage numbers without wiring up a metrics platform.
+It works on any git repository with full history, including private ones,
+because nothing leaves the machine.
+
+## Commands
+
+Commands each answer one question about your engineering, drawn from two
+layers: the code layer (what happened to the source) and the ticket layer
+(how work moved through GitHub). `report` assembles everything into one
+artifact; `update` keeps a release install current.
+
+| Command                            | Layer  | What it shows                                                                                           |
+| ---------------------------------- | ------ | ------------------------------------------------------------------------------------------------------- |
+| [report](/docs/report)             | both   | The full pipeline in one artifact: activity, timeline, contributors, hotspots, ownership, size, tickets |
+| [churn](/docs/churn)               | code   | Throughput churn per period, or per developer with `--by dev`                                           |
+| [contributors](/docs/contributors) | code   | Per-dev activity across the window plus approximate complexity attribution                              |
+| [size](/docs/size)                 | code   | Monthly size and complexity trend from scc snapshots                                                    |
+| [hotspots](/docs/hotspots)         | code   | The refactor shortlist: change frequency times complexity                                               |
+| [ownership](/docs/ownership)       | code   | Surviving-line ownership and bus-factor risk from blame at HEAD                                         |
+| [timeline](/docs/timeline)         | code   | A month-by-month narrative with auto-detected events                                                    |
+| [tickets](/docs/tickets)           | ticket | Pull request and issue flow per dev: cycle time, thrash, PR size buckets                                |
+| [reviews](/docs/reviews)           | ticket | Review load and latency per dev, plus team review coverage                                              |
+| [cache](/docs/cache)               | -      | Inspect and manage the SQLite cache under `.spanical/`                                                  |
+| [update](/docs/update)             | -      | Swap a release install for the latest GitHub release, checksum verified                                 |
+
+Shared behavior worth knowing once:
+
+- Analytics commands resolve config and window, extract into the local SQLite
+  cache when the repo tip or config changed, then render; `cache` and
+  `update` sit outside this lifecycle
+- Analytics commands write to stdout in `table` format by default;
+  `--format json` is pretty-printed with a four-space indent, `--format md`
+  renders GitHub-flavored tables
+- Per-developer tables carry a metric legend marking each column as
+  `(signal)`, `(context)`, or `(volume)`; volume columns are narrative only,
+  never rankings
+- Failures print one sentence to stderr and exit 1
+
+The code layer reads git history only: no network, no tokens. The ticket
+layer needs a `tickets` section in config and a `GITHUB_TOKEN`; both
+commands sync pull requests and issues over the GitHub GraphQL API into the
+same local cache.
+
+Hotspot scoring multiplies the two axes at once, so a file weak on either
+sinks in the ranking; see [hotspots](/docs/hotspots) for how files qualify.
+Thrash on the ticket layer means reversals: reopened tickets and reverted
+pull requests. It complements rework churn on the code layer, which counts
+deleted lines rather than undone work.
+
+## Where to next
+
+<CardGroup>
+    <Card title="Quickstart" href="/docs/quickstart">
+        Your first report, step by step.
+    </Card>
+    <Card title="Installation" href="/docs/installation">
+        Install script, release binaries, or run from source.
+    </Card>
+    <Card title="Configuration" href="/docs/configuration">
+        The spanical.config.ts reference: repos, authors, hotspots, tickets.
+    </Card>
+</CardGroup>

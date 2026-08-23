@@ -1,0 +1,84 @@
+export const metadata = {
+    title: "churn",
+    description:
+        "Show commit volume and churn per period, or per dev with --by dev.",
+};
+
+# churn
+
+`spanical churn` is the volume view: how many lines moved and how many
+commits landed, per period across the window. With `--by dev` the rows become
+per developer per period, keeping the commits and added/deleted/net columns
+and gaining throughput churn, rework lines, files touched, average commit
+size, and active days.
+
+```bash
+spanical churn [flags]
+```
+
+## Options
+
+| Option           | Values | Notes                                                                               |
+| ---------------- | ------ | ----------------------------------------------------------------------------------- |
+| All global flags |        | See [global flags](/docs/global-flags)                                              |
+| `--by dev`       |        | Switches to per-dev rows; any other `--by` value falls back to the per-period table |
+
+## Behavior
+
+Default rows are periods. Columns: Period, Commits, Added, Deleted, Net,
+Throughput (added + deleted), Migrations (lines on migration paths only,
+excluded from the other columns' churn story).
+
+`--by dev` rewrites the table to per-dev-per-period rows ordered by period
+then throughput: Commits, Lines added/deleted/net (all marked `(volume)`),
+Throughput churn and Rework lines (`(context)`), Files touched (`(context)`),
+Avg commit size and Active days (`(signal)`). The metric legend prints under
+the table because these columns mean different things: a high volume number
+is not a ranking.
+
+<Warning>
+    Only `dev` changes anything here. `--by file`, `--by dir`, and `--by
+    language` are accepted everywhere in spanical but consumed nowhere; they
+    silently produce the default per-period table.
+</Warning>
+
+## Examples
+
+Per-period table:
+
+```
+$ spanical churn --last 30d
+┌──────────┬─────────┬───────┬─────────┬─────┬────────────┬────────────┐
+│ Period   │ Commits │ Added │ Deleted │ Net │ Throughput │ Migrations │
+├──────────┼─────────┼───────┼─────────┼─────┼────────────┼────────────┤
+│ 2026-W30 │       0 │     0 │       0 │   0 │          0 │          0 │
+├──────────┼─────────┼───────┼─────────┼─────┼────────────┼────────────┤
+│ 2026-W31 │       1 │     2 │       3 │  -1 │          5 │          0 │
+├──────────┼─────────┼───────┼─────────┼─────┼────────────┼────────────┤
+│ 2026-W32 │       1 │     3 │       0 │   3 │          3 │          0 │
+...
+└──────────┴─────────┴───────┴─────────┴─────┴────────────┴────────────┘
+```
+
+JSON output:
+
+```
+$ spanical churn --last 3m --format json
+[
+    {
+        "period": "2026-05",
+        "commits": 7,
+        "added": 23,
+        "deleted": 23,
+        "net": 0,
+        "throughput": 46,
+        "migrationsAdded": 0,
+        "migrationsDeleted": 0
+    },
+    ... truncated
+]
+```
+
+Merge commits never count: totals are over no-merge commits. When several
+developers co-author one commit, credit splits fractionally between them
+instead of duplicating lines.

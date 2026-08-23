@@ -5,7 +5,8 @@
     "exports": {
         "./base.json": "./base.json",
         "./bun-cli.json": "./bun-cli.json",
-        "./library.json": "./library.json"
+        "./library.json": "./library.json",
+        "./nextjs.json": "./nextjs.json"
     },
     "files": [
         "*.json"

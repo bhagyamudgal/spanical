@@ -1,0 +1,15 @@
+{
+    "extends": "@spanical/typescript-config/nextjs.json",
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "@/*": ["./*"]
+        },
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "noEmit": true,
+        "lib": ["dom", "dom.iterable", "esnext"]
+    },
+    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+    "exclude": ["node_modules"]
+}
