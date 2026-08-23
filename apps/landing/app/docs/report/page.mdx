@@ -38,8 +38,9 @@ summary (net growth, total size, throughput churn, no-merge commits, active
 devs, busiest period), up to five hotspots, and a bus-factor warning count.
 
 Artifact sections, in order: Activity by period; Timeline; Contributors;
-Tickets and Reviews (only when tickets are configured and `GITHUB_TOKEN` is
-set, omitted otherwise); Hotspots; Ownership & bus-factor; Size & complexity;
+Tickets and Reviews (omitted when tickets are unconfigured, `GITHUB_TOKEN`
+is unset, or the window has no ticket or review activity); Hotspots;
+Ownership & bus-factor; Size & complexity;
 Migrations; then a per-repo appendix repeating everything per repository.
 Migrations always carry the note that they are tracked separately from main
 churn.

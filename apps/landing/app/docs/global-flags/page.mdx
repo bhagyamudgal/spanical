@@ -6,8 +6,10 @@ export const metadata = {
 
 # Global flags
 
-Every subcommand accepts the same shared flag set. The table below is the
-complete list; descriptions are the exact `--help` strings.
+Every subcommand that resolves config and windows accepts the same shared
+flag set; the table below is the complete list, with descriptions matching
+the exact `--help` strings. The exception is `spanical update`, which
+defines no options and rejects any flag other than help and version.
 
 | Flag         | Type                                          | Description                                        | Default                                          |
 | ------------ | --------------------------------------------- | -------------------------------------------------- | ------------------------------------------------ |
@@ -27,7 +29,7 @@ complete list; descriptions are the exact `--help` strings.
 | `--no-cache` | boolean                                       | Force fresh extraction                             | false                                            |
 
 brocli also adds `-h, --help` and `-v, --version`. `spanical --version`
-prints the package version (currently 0.1.0).
+prints the package version.
 
 ## Precedence
 
@@ -40,10 +42,10 @@ the GitHub sync reach, never the display window.
 ## Flags with caveats
 
 <Warning>
-    Only `churn --by dev` changes output. Every command parses `--by` without
-    error, but `file`, `dir`, and `language` are consumed nowhere and silently
-    fall back to the default rendering. On most commands even `dev` has no
-    effect.
+    Only `churn --by dev` changes output. Every flag-spreading command parses
+    `--by` without error, but `file`, `dir`, and `language` are consumed nowhere
+    and silently fall back to the default rendering. On most commands even `dev`
+    has no effect.
 </Warning>
 
 <Warning>

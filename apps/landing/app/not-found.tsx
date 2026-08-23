@@ -5,7 +5,10 @@ import { BGPattern } from "@/components/ui/bg-pattern";
 
 export default function NotFound() {
     return (
-        <div className="relative flex min-h-screen items-center justify-center">
+        <main
+            id="main-content"
+            className="relative flex min-h-screen items-center justify-center"
+        >
             <BGPattern
                 variant="grid"
                 mask="fade-edges"
@@ -39,6 +42,6 @@ export default function NotFound() {
                     </Link>
                 </Button>
             </div>
-        </div>
+        </main>
     );
 }

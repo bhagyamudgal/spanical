@@ -12,7 +12,7 @@ export function Hero() {
     const [copied, setCopied] = useState(false);
 
     async function copyInstall() {
-        const { error } = await tryCatch(
+        const { error } = await tryCatch(() =>
             navigator.clipboard.writeText(INSTALL_SCRIPT)
         );
         if (error) return;

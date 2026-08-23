@@ -11,7 +11,9 @@ export function Installation() {
     const [copied, setCopied] = useState<string | null>(null);
 
     async function copyToClipboard(id: string, text: string) {
-        const { error } = await tryCatch(navigator.clipboard.writeText(text));
+        const { error } = await tryCatch(() =>
+            navigator.clipboard.writeText(text)
+        );
         if (error) return;
         setCopied(id);
         setTimeout(() => setCopied(null), 2000);

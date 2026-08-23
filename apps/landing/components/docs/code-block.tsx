@@ -32,7 +32,9 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
 
     async function handleCopy() {
         const text = preRef.current?.querySelector("code")?.textContent ?? "";
-        const { error } = await tryCatch(navigator.clipboard.writeText(text));
+        const { error } = await tryCatch(() =>
+            navigator.clipboard.writeText(text)
+        );
         setCopyState(error ? "failed" : "copied");
         if (resetTimerRef.current !== null) {
             window.clearTimeout(resetTimerRef.current);

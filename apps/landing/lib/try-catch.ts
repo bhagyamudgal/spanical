@@ -15,9 +15,13 @@ function ensureError(value: unknown): Error {
     return new Error(message ?? String(value), { cause: value });
 }
 
-export async function tryCatch<T>(promise: Promise<T>): Promise<Result<T>> {
+export async function tryCatch<T>(
+    promiseOrThunk: Promise<T> | (() => Promise<T>)
+): Promise<Result<T>> {
     try {
-        const data = await promise;
+        const data = await (typeof promiseOrThunk === "function"
+            ? promiseOrThunk()
+            : promiseOrThunk);
         return { data, error: null };
     } catch (error) {
         return { data: null, error: ensureError(error) };
