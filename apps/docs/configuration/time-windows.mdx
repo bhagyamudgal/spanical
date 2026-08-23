@@ -1,0 +1,75 @@
+---
+title: "Time windows"
+description: "How spanical selects analysis windows: --last, --this, --ytd and date ranges, automatic granularity, and timezone handling."
+---
+
+Every insight command works over a window. You pick it with exactly one selector group; with no selector the default is the last 12 months.
+
+## Selector groups
+
+| Group           | Form                                                               | Window                                                                                                       |
+| --------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| Relative        | `--last 30d` (also `Nw`, `Nm`, `Nq`, `Ny`; count must be positive) | now minus the offset, to now. Not calendar-aligned: `--last 30d` buckets into ISO weeks that straddle months |
+| Calendar period | `--this week` \| `month` \| `quarter` \| `year`                    | The period containing now, computed in the active timezone. Weeks start Monday                               |
+| Year to date    | `--ytd`                                                            | Start of year, to now                                                                                        |
+| Explicit range  | `--since 2026-01-01 --until 2026-06-30`                            | Midnight of since to end of until, in the active timezone                                                    |
+
+Range details:
+
+- `--until` alone gives an open-start window from history to that day
+- `--since` alone gives a start-bounded window running to now
+- A backwards range fails: `--since (2026-06-01) must be on or before --until (2026-01-01).`
+- An impossible date fails: `Invalid --since value "not-a-date". Expected a real calendar date in YYYY-MM-DD form.` (same wording for `--until`)
+
+Mixing groups lists what conflicted:
+
+```
+Conflicting window selectors: --last, --since. Use only one of --last, --this, --ytd, or --since/--until.
+```
+
+## Granularity
+
+Periods are weekly, monthly, or quarterly, chosen automatically from the window span:
+
+- 8 calendar weeks or less: weekly
+- 18 calendar months or less: monthly
+- larger: quarterly
+- open-start windows (`--until` with no `--since`): monthly
+
+`--period` forces the choice. Period labels read `2026-W34` for weeks (ISO numbering), `2026-08` for months, `2026-Q3` for quarters.
+
+<Warning>
+    Open-start windows produce zero periods, so commands that aggregate per
+    period render an empty frame rather than one giant bucket. Bound the start
+    if you want data.
+</Warning>
+
+## Timezones
+
+All boundaries are computed as TZDate values in the active timezone via @date-fns/tz, so `--this month` means the same thing in `Pacific/Auckland` as in `UTC`. The active zone comes from `--tz` or config.timezone, defaulting to `UTC`.
+
+An invalid zone names itself:
+
+```
+Invalid timezone "Not/AZone". Use a valid IANA zone like "UTC" or "America/New_York".
+```
+
+## Window labels
+
+Window labels appear in report headers and in contributors JSON `period` fields:
+
+| Selector                                | Label                              |
+| --------------------------------------- | ---------------------------------- |
+| (default)                               | `last 12m (2025-08 → 2026-08)`     |
+| `--last=2w`                             | `last 2w (2026-08 → 2026-08)`      |
+| `--this month`                          | `this month (2026-08 → 2026-08)`   |
+| `--this quarter`                        | `this quarter (2026-07 → 2026-09)` |
+| `--ytd`                                 | `ytd (2026-01 → 2026-08)`          |
+| `--since 2026-06-01 --until 2026-08-31` | `2026-06 → 2026-08`                |
+| `--until=2026-06-30`                    | `history → 2026-06`                |
+
+The report header line joins label, granularity, repo count, and zone:
+
+```
+last 12m (2025-08 → 2026-08) · monthly · 2 repos · America/New_York
+```

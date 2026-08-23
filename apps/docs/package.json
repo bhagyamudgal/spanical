@@ -1,0 +1,13 @@
+{
+    "name": "@spanical/docs",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "mint dev",
+        "validate": "mint validate",
+        "export": "mint export"
+    },
+    "devDependencies": {
+        "mint": "^4"
+    }
+}

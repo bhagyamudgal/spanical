@@ -1,0 +1,40 @@
+{
+    "$schema": "https://mintlify.com/docs.json",
+    "name": "spanical",
+    "theme": "mint",
+    "colors": {
+        "primary": "#0D9488"
+    },
+    "navigation": {
+        "tabs": [
+            {
+                "tab": "Get started",
+                "pages": ["index", "quickstart", "installation"]
+            },
+            {
+                "tab": "Configuration",
+                "pages": [
+                    "configuration/config-file",
+                    "configuration/global-flags",
+                    "configuration/time-windows"
+                ]
+            },
+            {
+                "tab": "Commands",
+                "pages": [
+                    "commands/overview",
+                    "commands/report",
+                    "commands/churn",
+                    "commands/contributors",
+                    "commands/size",
+                    "commands/ownership",
+                    "commands/hotspots",
+                    "commands/tickets",
+                    "commands/reviews",
+                    "commands/timeline",
+                    "commands/cache"
+                ]
+            }
+        ]
+    }
+}

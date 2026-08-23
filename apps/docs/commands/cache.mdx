@@ -1,0 +1,64 @@
+---
+title: "Cache"
+description: "Inspect and manage the local SQLite cache under .spanical/."
+---
+
+`spanical cache` manages the SQLite database where every extraction lands: `<config dir>/.spanical/cache.db`. Normal runs keep it current automatically; these subcommands are for checking what is in it or forcing a rebuild.
+
+```bash
+spanical cache stats|rebuild|clear
+```
+
+## Subcommands
+
+| Subcommand                      | What it does                                                                                        |
+| ------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `cache stats` (or bare `cache`) | Row counts, file size, and last extraction per repo                                                 |
+| `cache rebuild`                 | Drops all tables and re-extracts every repo with caching disabled, printing a summary line per repo |
+| `cache clear`                   | Deletes cache.db and its -wal/-shm sidecar files                                                    |
+
+<Note>
+    Cache subcommands parse every global flag but consult almost none of them:
+    window flags like `--last abc` or an invalid `--tz` are accepted silently
+    because the cache never looks at windows. Only config discovery matters.
+</Note>
+
+The schema is versioned. Opening a database written by a different version drops and recreates all tables, so upgrades never leave stale rows behind.
+
+## Examples
+
+```
+$ spanical cache stats
+Cache: .../repo-alpha/.spanical/cache.db
+Size: 188416 bytes
+Rows:
+  authors: 3
+  author_aliases: 3
+  commits: 46
+  commit_authors: 46
+  file_changes: 31
+  scc_snapshots: 34
+  extractions: 1
+  file_ownership: 3
+  line_deaths: 0
+  rework_captures: 0
+  author_github_logins: 0
+  github_syncs: 0
+  tickets: 0
+  reviews: 0
+Last extraction:
+  repo-alpha: 2026-08-22T22:04:50.595Z
+```
+
+```
+$ spanical cache rebuild
+Cache rebuilt at .../repo-alpha/.spanical/cache.db
+repo-alpha: extracted (46 commits, 31 file changes)
+```
+
+```
+$ spanical cache clear
+Cache cleared at .../repo-alpha/.spanical/cache.db
+```
+
+A repo whose content has not changed since its last extraction reports `skipped (unchanged)` instead of an extraction line. With no extractions recorded, `Last extraction:` prints `never`.

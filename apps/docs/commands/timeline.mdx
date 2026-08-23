@@ -1,0 +1,67 @@
+---
+title: "Timeline"
+description: "Show a per-period narrative with auto-detected events per period."
+---
+
+`spanical timeline` turns the numbers into a story: one row per period with the churn figures and a narrated list of what made that period unusual, from dominant commits to churn spikes.
+
+```bash
+spanical timeline [flags]
+```
+
+## Options
+
+| Option           | Values | Notes                                                                      |
+| ---------------- | ------ | -------------------------------------------------------------------------- |
+| All global flags |        | See [global flags](/configuration/global-flags); `--by` has no effect here |
+
+## Behavior
+
+Columns: Period, Net, Churn (throughput), Commits, Active devs, Events. Events join with `; ` and are detected automatically:
+
+- `busiest period`, marking the anchor period
+- `churn spike (<x.x>x median)` when a period's throughput is at least twice the median
+- Dominant commit events: `<landing|removal|restructure> <short-sha> "<subject>" (<nn>% of churn)` for any single commit contributing at least 40% of its period's throughput. Subtype is landing when at least 70% of the commit's churn is additions, removal when at most 30%, restructure in between
+- `net removal` for periods that deleted more than they added
+
+Empty results:
+
+- Open-start window: `No timeline periods: an open-start history window has no bounded periods to plot.`
+- Otherwise: `No timeline periods were available for the selected window.`
+
+## Examples
+
+```
+$ spanical timeline --last 6m
+┌─────────┬─────┬───────┬─────────┬─────────────┬───────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Period  │ Net │ Churn │ Commits │ Active devs │ Events                                                                                            │
+├─────────┼─────┼───────┼─────────┼─────────────┼───────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ 2026-02 │  80 │    86 │       7 │           2 │ busiest period; churn spike (5.7x median); landing c712051 "feat: add core engine" (93% of churn) │
+...
+│ 2026-05 │   0 │    46 │       7 │           2 │ churn spike (3.1x median); restructure 1c3aa8c "refactor: tune engine top section" (87% of churn) │
+...
+└─────────┴─────┴───────┴─────────┴─────────────┴───────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+JSON event objects carry kind, label, and their specifics:
+
+```json
+{
+    "kind": "dominant-commit",
+    "label": "...",
+    "sha": "1c3aa8c",
+    "subject": "refactor: tune engine top section",
+    "share": 0.87,
+    "subtype": "restructure"
+}
+```
+
+```json
+{
+    "kind": "churn-spike",
+    "label": "churn spike (2.2x median)",
+    "multiple": 2.19
+}
+```
+
+Dominant-commit events exist because a single bulk commit distorts a period even after rename detection; naming it keeps the surrounding numbers honest.

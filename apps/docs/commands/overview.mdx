@@ -1,0 +1,72 @@
+---
+title: "Overview"
+description: "All ten spanical commands, grouped by the layer of engineering they measure."
+---
+
+spanical has ten commands. One assembles everything into a report; the rest each answer one question, drawn from two layers of your engineering: the code layer (what happened to the source) and the ticket layer (how work moved through GitHub).
+
+Shared behavior worth knowing once:
+
+- Every command resolves config and window, extracts into the local SQLite cache when the repo tip or config changed, then renders
+- Output goes to stdout in `table` format by default; `--format json` is pretty-printed with a four-space indent, `--format md` renders GitHub-flavored tables
+- Per-developer tables carry a metric legend marking each column as `(signal)`, `(context)`, or `(volume)`; volume columns are narrative only, never rankings
+- Failures print one sentence to stderr and exit 1
+
+<CardGroup cols={2}>
+    <Card title="report" icon="file-text" href="/commands/report">
+        The full pipeline in one artifact: activity, timeline, contributors,
+        hotspots, ownership, size, tickets.
+    </Card>
+</CardGroup>
+
+## Code layer
+
+These commands read git history only. No network, no tokens.
+
+<CardGroup cols={2}>
+    <Card title="churn" icon="activity" href="/commands/churn">
+        Throughput churn per period, or per developer with --by dev.
+    </Card>
+    <Card title="contributors" icon="users" href="/commands/contributors">
+        Per-dev activity across the window plus approximate complexity
+        attribution.
+    </Card>
+    <Card title="size" icon="scaling" href="/commands/size">
+        Monthly size and complexity trend from scc snapshots.
+    </Card>
+    <Card title="hotspots" icon="flame" href="/commands/hotspots">
+        The refactor shortlist: change frequency times complexity.
+    </Card>
+    <Card title="ownership" icon="git-fork" href="/commands/ownership">
+        Surviving-line ownership and bus-factor risk from blame at HEAD.
+    </Card>
+    <Card title="timeline" icon="history" href="/commands/timeline">
+        A month-by-month narrative with auto-detected events.
+    </Card>
+</CardGroup>
+
+Hotspot eligibility needs both axes at once; see [hotspots](/commands/hotspots) for how files qualify.
+
+## Ticket layer
+
+Both commands need a `tickets` section in config and a `GITHUB_TOKEN`. They sync pull requests and issues over the GitHub GraphQL API into the same local cache.
+
+<CardGroup cols={2}>
+    <Card title="tickets" icon="git-pull-request" href="/commands/tickets">
+        Pull request and issue flow per dev: cycle time, thrash, PR size
+        buckets.
+    </Card>
+    <Card title="reviews" icon="eye" href="/commands/reviews">
+        Review load and latency per dev, plus team review coverage.
+    </Card>
+</CardGroup>
+
+Thrash here means reversals: reopened tickets and reverted pull requests. It complements rework churn on the code layer, which counts deleted lines rather than undone work.
+
+## Maintenance
+
+<CardGroup cols={2}>
+    <Card title="cache" icon="database" href="/commands/cache">
+        Inspect and manage the SQLite cache under .spanical/.
+    </Card>
+</CardGroup>

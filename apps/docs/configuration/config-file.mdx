@@ -1,0 +1,96 @@
+---
+title: "Config file"
+description: "The spanical.config.ts reference: discovery, every schema option with defaults, error messages, and a validated example."
+---
+
+spanical reads one optional config file, `spanical.config.ts`, written in TypeScript:
+
+```ts
+import { defineConfig } from "spanical";
+
+export default defineConfig({
+    repos: [{ name: "my-repo", path: "~/code/my-repo" }],
+});
+```
+
+`defineConfig` gives you typed options; the file is loaded by dynamic import and must have a default export. Without any config file, spanical analyses the git repository containing your current directory with default settings.
+
+## Discovery
+
+From your working directory, spanical walks up until a directory contains either `spanical.config.ts` or a `.git` entry. That directory is the config location even when the file itself is absent, and it pins the cache path: the database always lives at `<config dir>/.spanical/cache.db`. An explicit `--config` path wins over discovery.
+
+## Schema
+
+The schema is strict; unknown keys fail validation.
+
+| Option             | Type                                                            | Default                                                   | Meaning                                                                                                                                                                                                                                  |
+| ------------------ | --------------------------------------------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repos`            | array, min 1, unique names                                      | required                                                  | Entries `{ name, path, branch?, github? }`. `name` labels the repo in all reports; `path` is any git worktree. `github: "owner/name"` overrides the slug parsed from the origin remote (use it for forks, renames, or non-GitHub hosts). |
+| `since`            | ISO date (`YYYY-MM-DD`)                                         | none                                                      | Backfill floor for extraction and for the GitHub ticket sync. It never narrows what you see; that is the display window's job ([time windows](/configuration/time-windows)).                                                             |
+| `timezone`         | IANA string                                                     | `"UTC"`                                                   | Zone for period boundaries. Weeks start Monday.                                                                                                                                                                                          |
+| `exclude`          | string[]                                                        | `["**/*.lock", "**/dist/**", "**/.next/**", "**/*.snap"]` | Globs matched against file paths at ingest. Excluded paths never enter the cache.                                                                                                                                                        |
+| `migrationsPath`   | glob string                                                     | `"**/migrations/**"`                                      | Matching files become migration rows, reported separately from main churn.                                                                                                                                                               |
+| `authors`          | record of canonical name to `{ emails: [...], github?: [...] }` | `{}`                                                      | The identity bridge. Each entry maps one person's git emails (min 1) and optional GitHub logins onto a single canonical author, so both layers credit the same human. Logins are case-insensitive.                                       |
+| `hotspot`          | object                                                          | `{ minFileLines: 50, busFactorThreshold: 0.8 }`           | `minFileLines`: code lines a file needs at its window-end snapshot to be hotspot/ownership eligible. `busFactorThreshold`: share that marks a file sole-owned by one developer (0 to 1).                                                 |
+| `reworkWindowDays` | int >= 1                                                        | `21`                                                      | Rework churn counts lines deleted within this many days of the commit that wrote them.                                                                                                                                                   |
+| `tickets`          | object                                                          | optional                                                  | Enables the GitHub layer. Exactly `{ source: "github", github: { token: "env:GITHUB_TOKEN", includeIssues? }, attribution? }`.                                                                                                           |
+
+Details worth knowing:
+
+- `authors.emails` accepts plain addresses; an address like `12345+login@users.noreply.github.com` auto-bridges to its embedded GitHub login unless an entry overrides it
+- `tickets.github.token` must be the literal string `"env:GITHUB_TOKEN"`. The secret itself comes from the `GITHUB_TOKEN` environment variable at runtime
+- `tickets.github.includeIssues` defaults to true; set false to sync pull requests only
+- `tickets.attribution` picks who gets credit per ticket: `"assignee"` (default), `"author"`, or `"closer"`
+
+<Note>
+    Changing `authors`, `exclude`, or `migrationsPath` changes the per-repo
+    config fingerprint in the cache. The next run re-extracts affected
+    repositories silently before reporting.
+</Note>
+
+## Validated example
+
+This exact shape loaded successfully through the CLI during development:
+
+```ts
+import { defineConfig } from "spanical";
+
+export default defineConfig({
+    repos: [
+        // name is the label everywhere in reports; path is any git worktree
+        { name: "alpha", path: "~/code/alpha" },
+        {
+            name: "beta",
+            path: "~/code/beta",
+            branch: "main",
+            github: "acme/beta-fork",
+        },
+    ],
+    since: "2026-01-01",
+    timezone: "America/New_York",
+    exclude: ["**/*.lock", "**/dist/**", "**/.next/**", "**/*.snap", "**/*.md"],
+    authors: {
+        "dev-one": { emails: ["dev1@example.com"] },
+        "dev-two": { emails: ["dev2@example.com"], github: ["dev-two-gh"] },
+        "dev-three": { emails: ["dev3@example.com"] },
+    },
+    hotspot: { minFileLines: 20, busFactorThreshold: 0.9 },
+    reworkWindowDays: 30,
+    tickets: {
+        source: "github",
+        github: { token: "env:GITHUB_TOKEN" },
+        attribution: "assignee",
+    },
+});
+```
+
+## Errors
+
+All config errors print one message and exit 1:
+
+| Situation                                    | Message                                                                               |
+| -------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Schema violation                             | `Invalid spanical config:` followed by one `  - <path>: <message>` line per issue     |
+| No default export                            | `Config at <path> has no default export. Use "export default defineConfig({ ... })".` |
+| File fails to import                         | `Failed to load config at <path>: <reason>`                                           |
+| Explicit `--config` points at a missing file | `No spanical config found at <path>. Create a spanical.config.ts to get started.`     |

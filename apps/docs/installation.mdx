@@ -1,0 +1,67 @@
+---
+title: "Installation"
+description: "Install the released binary, download it manually from GitHub releases, or run spanical from source with Bun."
+---
+
+## Requirements
+
+- **git** on PATH. Without it you get: `git was not found on PATH. Install git from https://git-scm.com/downloads and try again.`
+- Nothing else for released binaries. Running from source needs [Bun](https://bun.sh).
+
+scc (the size and complexity scanner) is not a requirement. On first run spanical resolves it for you; see [How scc is provisioned](#how-scc-is-provisioned).
+
+<Warning>
+Commands backed by monthly scc snapshots (size, hotspots, contributors, ownership, report) need a full clone. In a shallow clone they fail with: `Cannot snapshot a shallow clone in <path>: git history is truncated. Run "git fetch --unshallow" to restore full history first.`
+</Warning>
+
+## Install script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bhagyamudgal/spanical/main/install.sh | bash
+```
+
+The script downloads `spanical-<os>-<arch>` plus `SHA256SUMS` from the latest GitHub release, verifies the checksum, and installs the binary as `spanical`. The install directory is `$SPANICAL_INSTALL_DIR` if set, otherwise `$HOME/.local/bin`. It warns if that directory is not on your PATH, then prints `spanical --version` to confirm.
+
+Supported platforms: darwin x64/arm64 and linux x64/arm64.
+
+## Download a binary manually
+
+Grab `spanical-<os>-<arch>` and `SHA256SUMS` from the [releases page](https://github.com/bhagyamudgal/spanical/releases/latest), verify the checksum, make the file executable, and put it on your PATH:
+
+```bash
+chmod +x spanical-darwin-arm64
+mv spanical-darwin-arm64 /usr/local/bin/spanical
+```
+
+## Run from source
+
+For development on spanical itself:
+
+```bash
+git clone https://github.com/bhagyamudgal/spanical
+cd spanical
+bun install
+bun packages/cli/src/index.ts report
+```
+
+Or build the single-file executable and link it as `spanical`:
+
+```bash
+bun run build
+cd packages/cli && bun link
+spanical --version
+```
+
+The package declares `"bin": {"spanical": "dist/spanical"}`, so `bun link` exposes the compiled binary globally.
+
+## How scc is provisioned
+
+spanical uses [scc](https://github.com/boyter/scc) v3.7.0 for code size and complexity snapshots. Resolution order:
+
+1. An `scc` already on your PATH wins; spanical never touches it
+2. Otherwise a previously installed copy at `~/.spanical/bin/scc`
+3. Otherwise the pinned scc asset for your platform downloads from the scc GitHub release, its sha256 is checked against pinned checksums, and the binary is extracted into `~/.spanical/bin/scc`
+
+The download is silent and happens once. Prebuilt assets exist for darwin/arm64, darwin/x64, linux/arm64, and linux/x64 only; anything else fails with: `scc has no prebuilt binary for <platform>/<arch>. Supported: darwin/arm64, darwin/x64, linux/arm64, linux/x64.`
+
+Installing scc yourself first (any recent version on your PATH) skips the download entirely.
