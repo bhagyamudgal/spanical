@@ -2,12 +2,19 @@
 
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { tryCatch } from "@/lib/try-catch";
 
 type CodeBlockProps = React.ComponentProps<"pre"> & {
     "data-language"?: string;
 };
 
 type CopyState = "copied" | "failed" | null;
+
+function copyStatusLabel(copyState: CopyState): string | undefined {
+    if (copyState === "copied") return "Copied to clipboard";
+    if (copyState === "failed") return "Copy failed";
+    return undefined;
+}
 
 export function CodeBlock({ children, ...props }: CodeBlockProps) {
     const [copyState, setCopyState] = useState<CopyState>(null);
@@ -25,12 +32,8 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
 
     async function handleCopy() {
         const text = preRef.current?.querySelector("code")?.textContent ?? "";
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopyState("copied");
-        } catch {
-            setCopyState("failed");
-        }
+        const { error } = await tryCatch(navigator.clipboard.writeText(text));
+        setCopyState(error ? "failed" : "copied");
         if (resetTimerRef.current !== null) {
             window.clearTimeout(resetTimerRef.current);
         }
@@ -53,11 +56,7 @@ export function CodeBlock({ children, ...props }: CodeBlockProps) {
                 </div>
                 <div className="flex items-center gap-1.5">
                     <span role="status" className="sr-only">
-                        {copyState === "copied"
-                            ? "Copied to clipboard"
-                            : copyState === "failed"
-                              ? "Copy failed"
-                              : undefined}
+                        {copyStatusLabel(copyState)}
                     </span>
                     <button
                         type="button"

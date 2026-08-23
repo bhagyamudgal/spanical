@@ -42,6 +42,8 @@ export const metadata: Metadata = {
     authors: [{ name: "Bhagya Mudgal" }],
 };
 
+const THEME_INIT_SCRIPT = `try{var t=localStorage.getItem("spanical-theme");document.documentElement.classList.remove("light","dark");if(t==="light"||t==="dark"){document.documentElement.classList.add(t)}else{document.documentElement.classList.add("dark")}}catch(e){}`;
+
 export default function RootLayout({
     children,
 }: {
@@ -49,6 +51,11 @@ export default function RootLayout({
 }) {
     return (
         <html lang="en" className="dark" suppressHydrationWarning>
+            <head>
+                <script
+                    dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+                />
+            </head>
             <body
                 className={`${ibmPlexSans.variable} ${jetbrainsMono.variable} font-sans antialiased`}
             >

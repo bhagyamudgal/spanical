@@ -19,23 +19,37 @@ function MdxTable({ children, ...props }: React.ComponentProps<"table">) {
     );
 }
 
+function MdxLink({ href, children }: React.ComponentProps<"a">) {
+    if (isExternalHref(href)) {
+        return (
+            <a href={href} target="_blank" rel="noopener noreferrer">
+                {children}
+            </a>
+        );
+    }
+    return <Link href={href ?? "#"}>{children}</Link>;
+}
+
+function MdxNote(props: React.ComponentProps<typeof Callout>) {
+    return <Callout {...props} variant="note" />;
+}
+
+function MdxWarning(props: React.ComponentProps<typeof Callout>) {
+    return <Callout {...props} variant="warning" />;
+}
+
+function MdxTip(props: React.ComponentProps<typeof Callout>) {
+    return <Callout {...props} variant="tip" />;
+}
+
 export function useMDXComponents(components: MDXComponents): MDXComponents {
     return {
-        a: ({ href, children }) => {
-            if (isExternalHref(href)) {
-                return (
-                    <a href={href} target="_blank" rel="noopener noreferrer">
-                        {children}
-                    </a>
-                );
-            }
-            return <Link href={href ?? "#"}>{children}</Link>;
-        },
+        a: MdxLink,
         table: MdxTable,
         pre: CodeBlock,
-        Note: (props) => <Callout variant="note" {...props} />,
-        Warning: (props) => <Callout variant="warning" {...props} />,
-        Tip: (props) => <Callout variant="tip" {...props} />,
+        Note: MdxNote,
+        Warning: MdxWarning,
+        Tip: MdxTip,
         CardGroup: DocsCardGroup,
         Card: DocsCard,
         Tabs,

@@ -4,19 +4,17 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { tryCatch } from "@/lib/try-catch";
 import { INSTALL_METHODS } from "@/lib/constants";
 
 export function Installation() {
     const [copied, setCopied] = useState<string | null>(null);
 
     async function copyToClipboard(id: string, text: string) {
-        try {
-            await navigator.clipboard.writeText(text);
-            setCopied(id);
-            setTimeout(() => setCopied(null), 2000);
-        } catch (err) {
-            console.error("Failed to copy to clipboard:", err);
-        }
+        const { error } = await tryCatch(navigator.clipboard.writeText(text));
+        if (error) return;
+        setCopied(id);
+        setTimeout(() => setCopied(null), 2000);
     }
 
     return (
@@ -94,6 +92,11 @@ export function Installation() {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
+                                                aria-label={
+                                                    copied === method.id
+                                                        ? "Installation command copied"
+                                                        : "Copy installation command"
+                                                }
                                                 className="absolute top-3 right-3 h-8 w-8 text-white/50 transition-colors hover:text-teal-400"
                                                 onClick={() =>
                                                     copyToClipboard(

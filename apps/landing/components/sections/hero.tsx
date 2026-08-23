@@ -5,19 +5,19 @@ import { Github, Check, Copy, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AnimatedTerminal } from "@/components/ui/animated-terminal";
+import { tryCatch } from "@/lib/try-catch";
 import { GITHUB_URL, INSTALL_SCRIPT, SITE_NAME } from "@/lib/constants";
 
 export function Hero() {
     const [copied, setCopied] = useState(false);
 
     async function copyInstall() {
-        try {
-            await navigator.clipboard.writeText(INSTALL_SCRIPT);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        } catch {
-            /* clipboard not available */
-        }
+        const { error } = await tryCatch(
+            navigator.clipboard.writeText(INSTALL_SCRIPT)
+        );
+        if (error) return;
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
     }
 
     return (
@@ -75,10 +75,10 @@ export function Hero() {
                         <button
                             type="button"
                             onClick={copyInstall}
-                            className="mt-6 flex cursor-pointer items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5 font-mono text-sm shadow-sm transition-all hover:border-primary/40 hover:shadow-md dark:shadow-none dark:hover:shadow-[0_0_15px_var(--glow-teal)]"
+                            className="mt-6 flex max-w-full cursor-pointer items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5 font-mono text-sm shadow-sm transition-all hover:border-primary/40 hover:shadow-md dark:shadow-none dark:hover:shadow-[0_0_15px_var(--glow-teal)]"
                         >
-                            <span className="text-primary">$</span>
-                            <span className="text-muted-foreground">
+                            <span className="shrink-0 text-primary">$</span>
+                            <span className="min-w-0 break-all text-left text-muted-foreground">
                                 {INSTALL_SCRIPT}
                             </span>
                             {copied ? (

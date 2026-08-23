@@ -10,10 +10,8 @@ import {
 
 type Theme = "light" | "dark";
 
-const VALID_THEMES: Theme[] = ["light", "dark"];
-
 function isValidTheme(value: unknown): value is Theme {
-    return typeof value === "string" && VALID_THEMES.includes(value as Theme);
+    return value === "light" || value === "dark";
 }
 
 type ThemeProviderState = {
