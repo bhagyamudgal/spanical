@@ -33,7 +33,7 @@ Events join with `; ` and are detected automatically:
   for any single commit contributing at least 40% of its period's throughput.
   Subtype is landing when at least 70% of the commit's churn is additions,
   removal when at most 30%, restructure in between
-- `net removal` for periods that deleted more than they added — quiet periods are suppressed: no event unless the period's throughput reaches half the window's median
+- `net removal` when the window median throughput is nonzero, the period deleted more than it added, and its throughput reaches at least half that median
 
 Empty results:
 

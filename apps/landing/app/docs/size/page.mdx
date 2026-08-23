@@ -23,8 +23,8 @@ spanical size [flags]
 
 ## Behavior
 
-One row per month across the selected window; open-start windows (no `--last`
-or `--this` selector) reach back to the earliest cached commit: Month, Total
+One row per month across the selected window; open-start windows (`--until`
+without `--since`) reach back to the earliest cached commit: Month, Total
 code, Total complexity, Languages (rendered like `TypeScript 6, SQL 1`,
 counts of code lines per language). Complexity is cyclomatic complexity as
 reported by scc at each snapshot.
