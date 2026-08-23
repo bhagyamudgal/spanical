@@ -54,6 +54,16 @@ spanical --version
 
 The package declares `"bin": {"spanical": "dist/spanical"}`, so `bun link` exposes the compiled binary globally.
 
+## Upgrading
+
+A release install updates itself in place:
+
+```bash
+spanical update
+```
+
+The command downloads the latest release asset for your platform, verifies its SHA256 checksum, and replaces the binary. See [update](/commands/update). Source installs have no self-update; pull and rebuild.
+
 ## How scc is provisioned
 
 spanical uses [scc](https://github.com/boyter/scc) v3.7.0 for code size and complexity snapshots. Resolution order:

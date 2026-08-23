@@ -1,9 +1,9 @@
 ---
 title: "Overview"
-description: "All ten spanical commands, grouped by the layer of engineering they measure."
+description: "Every spanical command, grouped by the layer of engineering it measures."
 ---
 
-spanical has ten commands. One assembles everything into a report; the rest each answer one question, drawn from two layers of your engineering: the code layer (what happened to the source) and the ticket layer (how work moved through GitHub).
+spanical's commands each answer one question about your engineering, drawn from two layers: the code layer (what happened to the source) and the ticket layer (how work moved through GitHub). `report` assembles everything into one artifact; `update` keeps a release install current.
 
 Shared behavior worth knowing once:
 
@@ -68,5 +68,8 @@ Thrash here means reversals: reopened tickets and reverted pull requests. It com
 <CardGroup cols={2}>
     <Card title="cache" icon="database" href="/commands/cache">
         Inspect and manage the SQLite cache under .spanical/.
+    </Card>
+    <Card title="update" icon="refresh-cw" href="/commands/update">
+        Swap a release install for the latest GitHub release, checksum verified.
     </Card>
 </CardGroup>

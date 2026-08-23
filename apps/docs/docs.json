@@ -32,7 +32,8 @@
                     "commands/tickets",
                     "commands/reviews",
                     "commands/timeline",
-                    "commands/cache"
+                    "commands/cache",
+                    "commands/update"
                 ]
             }
         ]

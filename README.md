@@ -79,6 +79,7 @@ Every command shares one set of global flags, and `spanical <command> --help` li
 | `reviews`      | Review load, review latency, and team review coverage (GitHub)                                    | [reviews](./apps/docs/commands/reviews.mdx)           |
 | `timeline`     | Period-by-period narrative with auto-detected events                                              | [timeline](./apps/docs/commands/timeline.mdx)         |
 | `cache`        | Inspect and manage the local cache (`stats`, `rebuild`, `clear`)                                  | [cache](./apps/docs/commands/cache.mdx)               |
+| `update`       | Self-update a release install to the latest GitHub release                                        | [update](./apps/docs/commands/update.mdx)             |
 
 ## Configuration
 
